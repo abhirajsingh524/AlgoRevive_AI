@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import AppException
 from app.core.logging import get_logger
+from app.engines.bottleneck import BottleneckDetector
 from app.engines.complexity import ComplexityEstimator
 from app.engines.profiler import ProfilerEngine, collect_environment_metadata
 from app.engines.static_analyzer import PatternDetector, StaticAnalyzer
@@ -346,10 +347,42 @@ def stage_profile(ctx: AnalysisContext) -> None:
     )
 
 
+def stage_bottleneck(ctx: AnalysisContext) -> None:
+    """Detect and score performance bottlenecks combining static and runtime evidence."""
+    logger.info(f"Running bottleneck stage for repo {ctx.repository.id} run {ctx.run.id}")
+    ctx.run.stage = "bottleneck"
+    ctx.run.progress = 85
+    ctx.db.commit()
+    publish_progress(
+        ctx.run.id,
+        stage="bottleneck",
+        progress=85,
+        status="running",
+        message="Evaluating impact scores and ranking bottlenecks...",
+    )
+
+    detector = BottleneckDetector(db=ctx.db, storage=ctx.storage)
+    bottlenecks = detector.detect_and_save(
+        analysis_run_id=ctx.run.id,
+        repository_id=ctx.repository.id,
+    )
+
+    ctx.run.progress = 90
+    ctx.db.commit()
+    publish_progress(
+        ctx.run.id,
+        stage="bottleneck",
+        progress=90,
+        status="running",
+        message=f"Identified {len(bottlenecks)} candidate bottlenecks",
+    )
+
+
 # Register pipeline stages
 registry.register("static", stage_static)
 registry.register("structure", stage_structure)
 registry.register("profile", stage_profile)
+registry.register("bottleneck", stage_bottleneck)
 
 
 def execute_analysis(db: Session, storage: StorageService, run_id: str) -> AnalysisRun:
