@@ -26,9 +26,11 @@ import {
 import { api } from '../api/client';
 import {
   AnalysisRun,
+  BottleneckRecord,
   FunctionRecord,
   ProfileResult,
 } from '../types';
+import { BottleneckExplorer } from '../components/BottleneckExplorer';
 
 const PIPELINE_STAGES = [
   'queued',
@@ -56,6 +58,7 @@ export const AnalysisPage: React.FC = () => {
 
   const [run, setRun] = useState<AnalysisRun | null>(null);
   const [profile, setProfile] = useState<ProfileResult | null>(null);
+  const [bottlenecks, setBottlenecks] = useState<BottleneckRecord[]>([]);
   const [functions, setFunctions] = useState<FunctionRecord[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [wsConnected, setWsConnected] = useState<boolean>(false);
@@ -100,6 +103,13 @@ export const AnalysisPage: React.FC = () => {
       setProfile(prof);
     } catch (e) {
       console.warn('Could not load profile result:', e);
+    }
+
+    try {
+      const bList = await api.bottlenecks.list(rId);
+      setBottlenecks(bList);
+    } catch (e) {
+      console.warn('Could not load bottlenecks:', e);
     }
 
     const effectiveRepoId = repoId || repositoryId;
@@ -620,6 +630,34 @@ export const AnalysisPage: React.FC = () => {
               </table>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Bottlenecks Section */}
+      {run?.status === 'completed' && (
+        <div className="space-y-4 pt-6 border-t border-slate-800">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <Zap className="w-5 h-5 text-indigo-400" />
+                Ranked Bottlenecks & Evidence
+              </h2>
+              <p className="text-sm text-slate-400">
+                Performance bottlenecks ranked by composite impact score combining static and runtime evidence.
+              </p>
+            </div>
+            <Link
+              to={`/analysis-runs/${runId}/bottlenecks`}
+              className="text-xs font-semibold text-indigo-400 hover:text-indigo-300"
+            >
+              Open Full Explorer →
+            </Link>
+          </div>
+          <BottleneckExplorer
+            bottlenecks={bottlenecks}
+            repositoryId={run.repository_id || repositoryId}
+            isStaticOnly={!profile}
+          />
         </div>
       )}
     </div>

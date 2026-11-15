@@ -167,3 +167,68 @@ export interface ProfileResult {
   };
   extra?: Record<string, any>;
 }
+
+export interface WorkloadProfileData {
+  input_size: number;
+  lookup_frequency: 'LOW' | 'MEDIUM' | 'HIGH' | 'VERY_HIGH';
+  insert_ratio: number;
+  delete_ratio: number;
+  read_write_ratio: number;
+  data_distribution: 'uniform' | 'sorted' | 'skewed';
+  memory_constraint: 'LOW' | 'MEDIUM' | 'HIGH';
+  latency_requirement: 'LOW' | 'MEDIUM' | 'HIGH' | 'VERY_HIGH';
+}
+
+export interface WhyFlaggedNodeData {
+  reason: string;
+  metric: string;
+  value: any;
+  weight: number | null;
+  children?: WhyFlaggedNodeData[];
+}
+
+export interface AffectedFunctionData {
+  function_id: string;
+  name: string;
+  qualified_name: string;
+  file_path: string;
+  depth: number;
+  covered_by_workload: boolean;
+}
+
+export interface BottleneckEvidence {
+  source?: string;
+  static_norm?: number;
+  runtime_pct?: number;
+  call_freq_norm?: number;
+  mem_norm?: number;
+  max_calls?: number;
+  max_peak_mem_kb?: number;
+  runtime_score?: number;
+  static_score?: number;
+  impact_score?: number;
+  severity?: string;
+  workload?: WorkloadProfileData;
+  features?: Record<string, any>;
+  features_array?: number[];
+  affected_functions?: AffectedFunctionData[];
+  why_flagged?: WhyFlaggedNodeData;
+  [key: string]: any;
+}
+
+export interface BottleneckRecord {
+  id: string;
+  analysis_run_id: string;
+  function_id: string;
+  static_score: number;
+  runtime_score: number;
+  call_count: number;
+  runtime_pct: number;
+  memory_peak_kb: number;
+  impact_score: number;
+  severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | string;
+  evidence: BottleneckEvidence | null;
+  created_at: string;
+  updated_at: string;
+  function?: FunctionRecord;
+}

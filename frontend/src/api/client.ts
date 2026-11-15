@@ -2,6 +2,7 @@ import axios from 'axios';
 import {
   AnalysisRun,
   AuthResponse,
+  BottleneckRecord,
   CallGraphData,
   FileContent,
   FileRecord,
@@ -138,6 +139,25 @@ export const api = {
     },
     getProfile: async (runId: string): Promise<any> => {
       const res = await apiClient.get(`/analysis-runs/${runId}/profile`);
+      return res.data;
+    },
+  },
+  bottlenecks: {
+    list: async (
+      runId: string,
+      params?: { severity?: string; min_impact?: number; pattern?: string }
+    ): Promise<BottleneckRecord[]> => {
+      const res = await apiClient.get<BottleneckRecord[]>(`/analysis-runs/${runId}/bottlenecks`, {
+        params,
+      });
+      return res.data;
+    },
+    get: async (id: string): Promise<BottleneckRecord> => {
+      const res = await apiClient.get<BottleneckRecord>(`/bottlenecks/${id}`);
+      return res.data;
+    },
+    getRecommendation: async (id: string): Promise<any> => {
+      const res = await apiClient.get(`/bottlenecks/${id}/recommendation`);
       return res.data;
     },
   },

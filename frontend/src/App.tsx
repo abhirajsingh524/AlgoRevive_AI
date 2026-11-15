@@ -10,6 +10,7 @@ import { ProjectsPage } from './pages/ProjectsPage';
 import { ProjectDetailPage } from './pages/ProjectDetailPage';
 import { RepositoryPage } from './pages/RepositoryPage';
 import { AnalysisPage } from './pages/AnalysisPage';
+import { BottleneckExplorerPage } from './pages/BottleneckExplorerPage';
 
 export const App: React.FC = () => {
   return (
@@ -30,6 +31,7 @@ export const App: React.FC = () => {
               <Route path="/repositories/:repositoryId" element={<RepositoryPage />} />
               <Route path="/repositories/:repositoryId/analysis/:runId" element={<AnalysisPage />} />
               <Route path="/analysis-runs/:runId" element={<AnalysisPage />} />
+              <Route path="/analysis-runs/:runId/bottlenecks" element={<BottleneckExplorerPage />} />
             </Route>
           </Route>
 
