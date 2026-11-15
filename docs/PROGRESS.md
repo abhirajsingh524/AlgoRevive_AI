@@ -1,82 +1,132 @@
 # AlgoRevive AI - Progress Log
 
-## Current Status: Phase 1 (Foundation) Complete
+## Current Status: Phase 2 (Static Analysis, Complexity, and Call Graph) Complete
 
-### Phase 1: Foundation
+### Phase 2: Static Analysis, Complexity, and Call Graph
 - **Status:** Completed
-- **Goal:** Clean clone runs with one command and supports register, login, create project, upload a repository, browse its files in a Monaco viewer.
+- **Goal:** After uploading a repository, the user can run static analysis and view every function with estimated complexity, detected performance patterns, severity, and an interactive call graph.
+
+---
 
 ### Done
-1. **Scaffold & Layout:**
-   - Initialized immutable architecture contract in `docs/ARCHITECTURE_CONTRACT.md`.
-   - Setup repository layout matching section C exactly (.gitattributes with LF, .gitignore, .env.example, README.md, directory packages with `__init__.py`).
-2. **Containerized Infrastructure:**
-   - Created `docker-compose.yml` defining all required services: `postgres:16`, `redis:7`, `minio`, `backend:8000` (uvicorn), `worker` (celery), `frontend:5173` (Vite dev server with polling).
-   - Created `backend/Dockerfile`, `backend/entrypoint.sh`, and `frontend/Dockerfile`.
-3. **Backend Core:**
-   - Configured `pydantic-settings` in `app/core/config.py` loading all fixed environment variables.
-   - Structured JSON logging (`app/core/logging.py`) with request ID middleware.
-   - Global exception handling returning contract-mandated standard `{"detail": str, "code": str}`.
-   - Storage abstraction (`app/services/storage.py`) supporting both `LocalStorage` and `S3Storage` (MinIO/boto3).
-   - Health endpoints: `GET /api/v1/health` and `GET /api/v1/health/ready`.
-4. **Database & Migrations:**
-   - Implemented sync SQLAlchemy 2.0 models in `app/models/` for all 13 tables specified in Section E: `users`, `projects`, `repositories`, `files`, `functions`, `analysis_runs`, `bottlenecks`, `recommendations`, `optimizations`, `benchmark_runs`, `benchmark_results`, `test_results`, `audit_logs`.
-   - Primary keys use UUIDs; timestamps use timezone-aware UTC (`datetime.now(timezone.utc)`).
-   - Created initial Alembic migration (`alembic/versions/001_initial_tables.py`).
-   - Verified clean execution of both `alembic upgrade head` and `alembic downgrade base`.
-5. **Authentication & Audit:**
-   - Built `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, and `GET /api/v1/auth/me`.
-   - Implemented password hashing using `bcrypt` directly (strictly enforcing >= 8 characters and <= 72 bytes).
-   - JWT access token generation and validation with `PyJWT` in `get_current_user` dependency.
-   - Audit logging service tracking user actions to `audit_logs` table.
-6. **Projects API:**
-   - Full CRUD for projects (`/api/v1/projects`).
-   - Strict owner-scoping: users can only view and mutate their own projects; other users' projects return 404.
-7. **Repository Ingestion & Security:**
-   - Ingestion endpoint `POST /api/v1/projects/{project_id}/repositories` supporting `.zip` or multiple `.py` files.
-   - Security Invariant H3 strictly enforced: rejects zip-slip (`..`), absolute paths (`/` or `C:\`), symlinks, archives > 50MB, file count > 5,000, decompressed single file > 2MB.
-   - Filters out `.git`, `__pycache__`, `venv`, `.venv`, and `node_modules`.
-   - Computes LOC and SHA-256 for all Python files.
-   - Implemented file tree browsing (`GET /repositories/{id}/files`) and content retrieval (`GET /repositories/{id}/files/{file_id}/content`).
-8. **Celery Worker & Progress Publisher:**
-   - Initialized `workers/celery_app.py` and Celery tasks (`ping` task).
-   - Created `services/progress.py` publishing progress to Redis channel `progress:{job_id}`, safely handling Redis disconnections.
-9. **Frontend Shell:**
-   - Vite 5 + React 18 + TypeScript (strict mode) + Tailwind CSS 3.4.
-   - Routing: `/login`, `/register`, `/dashboard`, `/projects`, `/projects/:projectId`, `/repositories/:repositoryId`.
-   - AuthContext with persistent tokens and Axios interceptor with automatic 401 redirect.
-   - Responsive dark sidebar layout.
-   - Drag-and-drop repository upload.
-   - File tree component (`FileTree.tsx`) and read-only Monaco Editor (`@monaco-editor/react`) for code viewing.
-10. **Testing & Documentation:**
-    - Backend: All checks pass on `ruff check .`. All 12 unit tests pass on `pytest` covering health, auth, projects, worker, and ingest security attacks (zip slip, absolute paths, symlinks, oversized files).
-    - Frontend: `npm run build` succeeds cleanly under strict TypeScript. All 3 Vitest tests pass covering login form, protected routing, and file tree browsing with sample data.
-    - Updated `docs/API.md`, `README.md`, and `docs/PROGRESS.md`.
+
+1. **Demo Repository (`examples/demo_repo/`):**
+   - Created pure stdlib Python package `demo` with all 7 required functions and control function:
+     - `slow_membership(users, ids)`: loops over users and checks `u["id"] in ids` where `ids` is a list.
+     - `nested_match(orders, customers)`: nested for loops joining on `customer_id == id`.
+     - `repeated_sort(values, queries)`: returns `sorted(values)[0]` inside query loop.
+     - `concat_report(parts)`: string accumulation with `s += part` in loop.
+     - `fib(n)`: naive recursion with two self-calls without memoization.
+     - `drain_queue(items)`: while loop calling `pop(0)`.
+     - `efficient_total(values)`: control sum loop (guaranteed LOW severity, never flagged HIGH or CRITICAL).
+   - Created `algorevive.workload.json` conforming to Contract G7 with all 7 functions.
+   - Created `examples/demo_repo/tests/test_demo.py` using standard `unittest`.
+
+2. **AST Static Analyzer Engine (`engines/static_analyzer/`):**
+   - Built robust Python AST parser with resilient error handling: `SyntaxError` and `IndentationError` are recorded as warnings in `result.warnings` and never abort execution.
+   - Extracts top-level functions, class definitions, methods, and nested functions with accurate lexical qualified names (`Class.method`, `outer.inner`).
+   - Extracts parameters (names, annotations, defaults, kinds), imports, and call signatures.
+   - Computes loop nesting depth (maximum nested `For`/`While`), comprehension loop counts, direct recursive calls, McCabe cyclomatic complexity, and line ranges into `functions.metrics`.
+
+3. **Rule-Based Complexity Estimator (`engines/complexity/`):**
+   - Implemented asymptotic complexity estimator strictly following Contract G5:
+     - No loops, no recursion: $O(1)$ [rank 0, LOW]
+     - Single loop or comprehension: $O(n)$ [rank 2, LOW]
+     - `sorted()` or `.sort()` outside loop: $O(n \log n)$ [rank 3, MEDIUM]
+     - Loop depth $k \ge 2$: $O(n^k)$ (depth 2 $\to O(n^2)$ [rank 4, HIGH]; depth 3 $\to O(n^3)$ [rank 5, CRITICAL])
+     - Sort inside loop: at least $O(n^2)$ [rank 4, HIGH]
+     - Linear membership check (`in`/`not in` on list-like collections) inside loop: adds $+1$ factor of $n$ ($O(n^2)$ [rank 4, HIGH])
+     - Single recursive call: $O(n)$ [rank 2, LOW]
+     - $\ge 2$ recursive self-calls without memoization: $O(2^n)$ [rank 6, CRITICAL]
+     - `@lru_cache` or `@cache` decorator eliminates exponential recursion to $O(n)$ [rank 2, LOW]
+   - Fully documented heuristics in module docstring with clear static estimate disclaimer.
+
+4. **Pattern Detector (`engines/static_analyzer/patterns.py`):**
+   - Detects exactly the six performance anti-pattern IDs from Contract G3:
+     1. `LINEAR_MEMBERSHIP_IN_LOOP`
+     2. `NESTED_LOOP_LOOKUP`
+     3. `REPEATED_SORT_FOR_EXTREME`
+     4. `STRING_CONCAT_IN_LOOP`
+     5. `NAIVE_RECURSION`
+     6. `LIST_POP_FRONT`
+   - Stores line numbers and matched AST node source snippets in `functions.patterns`.
+   - Strict preconditions ensure zero false positives on `efficient_total` or other control functions.
+
+5. **Call Graph Builder & Storage (`engines/structure/`):**
+   - Constructs a directed graph of function invocations using NetworkX `DiGraph`.
+   - Cross-file call resolution: resolves calls through file imports (`from ... import ...`, `import ... as ...`), same-file declarations, self-recursion, and unambiguous symbols.
+   - Calculates `fan_in`, `fan_out`, `callers`, and `callees` for every function.
+   - Serializes call graph to `repos/{repository_id}/call_graph.json` in object storage.
+
+6. **Orchestrator, Celery Task & REST Endpoints:**
+   - Implemented pipeline stage registry in `services/analysis_service.py` adhering to Contract G1; registered `static` and `structure` stages.
+   - Background execution via Celery task `run_analysis(run_id)` in `workers/tasks.py`.
+   - Idempotent re-run: re-analyzing a repository safely replaces existing function rows without duplicate keys or orphan records.
+   - Endpoints implemented:
+     - `POST /repositories/{id}/analysis-runs`
+     - `GET /repositories/{id}/analysis-runs`
+     - `GET /analysis-runs/{id}`
+     - `GET /repositories/{id}/functions` (with `file_id`, `severity`, `min_rank`, `pattern` filters; sorted by rank descending)
+     - `GET /repositories/{id}/call-graph`
+   - Strict owner-scoping: non-owners receive 404 for all analysis endpoints.
+
+7. **Frontend Slice:**
+   - Repository page tabs: **Files** | **Functions** | **Call Graph**.
+   - Header **Run Analysis** button with live progress tracking, stage status, and automatic refresh.
+   - **Functions Tab:** Sortable table displaying function name, qualified name, complexity badge, severity pill, loop depth, recursion status, and pattern chips with hover tooltips. Clicking a row navigates to the file in Monaco, scrolls to the function, and highlights its exact line span.
+   - **Call Graph Tab:** Interactive graph rendering using React Flow with custom layered topological layout algorithm (zero external layout dependencies), node coloring by severity, fan-in/fan-out metrics, minimap, and zoom controls.
+
+8. **Testing & Verification:**
+   - Golden tests covering positive and negative cases for all 6 patterns.
+   - Complexity table unit tests covering ranks 0 through 6 and decorator effects.
+   - Syntax-error resilience test.
+   - Cross-file call graph resolution test.
+   - Demo repository verification test: asserts `slow_membership` and `nested_match` $\ge$ HIGH, `repeated_sort` $\ge$ HIGH, `fib` CRITICAL, and `efficient_total` LOW.
+   - API integration tests: run lifecycle, filters, idempotent re-run, and owner isolation.
+   - Total backend test suite: 19 pytest tests passing.
+   - Total frontend test suite: 4 Vitest tests passing.
+   - Linting: 100% green on `ruff check backend` and `npm run build`.
+
+---
 
 ### How to Verify
-1. **Full Stack with Docker Compose:**
+
+1. **Backend Tests & Linting:**
    ```bash
-   docker compose up --build
+   cd AlgoRevive_AI
+   .venv/Scripts/ruff check backend
+   .venv/Scripts/pytest -c backend/pytest.ini backend/tests -v
    ```
-   - Frontend UI: `http://localhost:5173`
-   - Backend Swagger API: `http://localhost:8000/docs`
-   - Healthcheck: `curl http://localhost:8000/api/v1/health`
-   - Readiness: `curl http://localhost:8000/api/v1/health/ready`
-2. **Backend Lint and Unit Tests:**
+
+2. **Frontend Build & Tests:**
    ```bash
-   # In backend directory or repository root:
-   ruff check backend
-   pytest -c backend/pytest.ini backend/tests -v
-   ```
-3. **Frontend Build and Unit Tests:**
-   ```bash
-   cd frontend
+   cd AlgoRevive_AI/frontend
    npm run build
    npm test
    ```
 
+3. **Demo Repository Unit Tests:**
+   ```bash
+   cd AlgoRevive_AI
+   python -m unittest discover -s examples/demo_repo/tests
+   ```
+
+4. **Full Stack with Docker Compose:**
+   ```bash
+   docker compose up --build
+   ```
+   - Open `http://localhost:5173`
+   - Upload `examples/demo_repo` as a zip archive
+   - Click **Run Analysis**
+   - Verify all 7 demo functions show expected complexity, severities, and detected pattern chips
+   - Inspect the interactive call graph in the **Call Graph** tab
+
+---
+
 ### Limitations
-- Phase 1 delivers the foundation shell and repository browsing. Static AST complexity analysis, AST call-graph construction, runtime sandbox profiling, ML recommender, and code optimization engines are scheduled for Phase 2 through Phase 6.
+- Static analysis infers complexity and patterns statically using AST heuristics. Dynamic profiling (cProfile, line_profiler, tracemalloc) and runtime validation in sandbox containers will be introduced in Phase 3.
+
+---
 
 ### Open Questions
 - None. All architectural constraints, table schemas, endpoint signatures, and dependencies adhere to `docs/ARCHITECTURE_CONTRACT.md`.
