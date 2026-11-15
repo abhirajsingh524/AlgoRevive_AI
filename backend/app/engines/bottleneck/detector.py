@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
 from app.engines.bottleneck.scorer import calculate_impact
+from app.engines.structure.dependencies import analyze_affected_functions
 from app.models.bottleneck import Bottleneck
 from app.models.file import File
 from app.models.function import Function
@@ -29,6 +30,7 @@ class BottleneckDetector:
         self,
         analysis_run_id: str,
         repository_id: str,
+        workload_spec: Optional[Dict[str, Any]] = None,
     ) -> List[Bottleneck]:
         """Detect bottlenecks for the given analysis run and save them to the database.
         
@@ -48,6 +50,15 @@ class BottleneckDetector:
             .all()
         )
         file_map: Dict[str, str] = {f.id: f.path for f in files}
+
+        # Load call graph for affected function analysis
+        call_graph_key = f"repos/{repository_id}/call_graph.json"
+        call_graph_data: Optional[Dict[str, Any]] = None
+        if self.storage.exists(call_graph_key):
+            try:
+                call_graph_data = json.loads(self.storage.get_file(call_graph_key).decode("utf-8"))
+            except Exception as e:
+                logger.warning(f"Could not load call graph from {call_graph_key}: {e}")
 
         # 2. Check if runtime profile exists
         profile_key = f"runs/{analysis_run_id}/profile.json"
@@ -159,6 +170,16 @@ class BottleneckDetector:
 
             # Contract G6: Create one bottlenecks row per function whose impact_score >= 0.10
             if scoring.impact_score >= 0.10:
+                evidence = dict(scoring.evidence)
+                affected = analyze_affected_functions(
+                    storage=self.storage,
+                    repository_id=repository_id,
+                    bottleneck_function_id=fn.id,
+                    workload_spec=workload_spec,
+                    call_graph_dict=call_graph_data,
+                )
+                evidence["affected_functions"] = affected
+
                 bottleneck = Bottleneck(
                     id=str(uuid.uuid4()),
                     analysis_run_id=analysis_run_id,
@@ -170,7 +191,7 @@ class BottleneckDetector:
                     memory_peak_kb=scoring.memory_peak_kb,
                     impact_score=scoring.impact_score,
                     severity=scoring.severity,
-                    evidence=scoring.evidence,
+                    evidence=evidence,
                 )
                 scored_bottlenecks.append(bottleneck)
 

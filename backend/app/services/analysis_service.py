@@ -371,6 +371,7 @@ def stage_bottleneck(ctx: AnalysisContext) -> None:
     bottlenecks = detector.detect_and_save(
         analysis_run_id=ctx.run.id,
         repository_id=ctx.repository.id,
+        workload_spec=ctx.run.workload_spec,
     )
 
     ctx.run.progress = 90
