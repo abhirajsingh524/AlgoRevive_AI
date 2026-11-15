@@ -1,6 +1,6 @@
 # ML Recommendation Engine - Training & Evaluation Report
 
-**Generated:** 2026-11-15 14:10:09 UTC  
+**Generated:** 2026-11-15 15:04:23 UTC  
 **Selected Best Model:** `RandomForestClassifier` (selected by highest Macro F1)
 
 ---
@@ -11,12 +11,12 @@ Both models were trained on the empirical dataset using stratified train/test sp
 
 | Metric | RandomForestClassifier | XGBClassifier | Selected (`RandomForestClassifier`) |
 |---|---|---|---|
-| **Accuracy** | 0.9938 | 0.9938 | 0.9938 |
-| **Macro Precision** | 0.9966 | 0.9966 | 0.9966 |
-| **Macro Recall** | 0.9846 | 0.9846 | 0.9846 |
-| **Macro F1 (Key)** | **0.9904** | **0.9904** | **0.9904** |
+| **Accuracy** | 1.0000 | 1.0000 | 1.0000 |
+| **Macro Precision** | 1.0000 | 1.0000 | 1.0000 |
+| **Macro Recall** | 1.0000 | 1.0000 | 1.0000 |
+| **Macro F1 (Key)** | **1.0000** | **1.0000** | **1.0000** |
 | **Top-3 Accuracy** | 1.0000 | 1.0000 | 1.0000 |
-| **MRR (Mean Reciprocal Rank)** | 0.9975 | 0.9969 | 0.9975 |
+| **MRR (Mean Reciprocal Rank)** | 1.0000 | 1.0000 | 1.0000 |
 
 ---
 
@@ -24,18 +24,18 @@ Both models were trained on the empirical dataset using stratified train/test sp
 
 | Rank | Feature | Importance | Description |
 |---|---|---|---|
-| 1 | `current_algorithm_code` | 0.3548 | 12-dim FeatureVector field |
-| 2 | `lookup_freq_level` | 0.1693 | 12-dim FeatureVector field |
-| 3 | `runtime_pct` | 0.1398 | 12-dim FeatureVector field |
-| 4 | `current_complexity_rank` | 0.1200 | 12-dim FeatureVector field |
-| 5 | `call_count_log10` | 0.0877 | 12-dim FeatureVector field |
-| 6 | `input_size_log10` | 0.0816 | 12-dim FeatureVector field |
-| 7 | `latency_requirement_level` | 0.0106 | 12-dim FeatureVector field |
-| 8 | `read_write_ratio` | 0.0103 | 12-dim FeatureVector field |
-| 9 | `data_distribution_code` | 0.0092 | 12-dim FeatureVector field |
-| 10 | `insert_ratio` | 0.0081 | 12-dim FeatureVector field |
-| 11 | `memory_constraint_level` | 0.0047 | 12-dim FeatureVector field |
-| 12 | `delete_ratio` | 0.0038 | 12-dim FeatureVector field |
+| 1 | `current_algorithm_code` | 0.4331 | 12-dim FeatureVector field |
+| 2 | `input_size_log10` | 0.1489 | 12-dim FeatureVector field |
+| 3 | `current_complexity_rank` | 0.0999 | 12-dim FeatureVector field |
+| 4 | `runtime_pct` | 0.0959 | 12-dim FeatureVector field |
+| 5 | `call_count_log10` | 0.0859 | 12-dim FeatureVector field |
+| 6 | `lookup_freq_level` | 0.0661 | 12-dim FeatureVector field |
+| 7 | `read_write_ratio` | 0.0223 | 12-dim FeatureVector field |
+| 8 | `insert_ratio` | 0.0165 | 12-dim FeatureVector field |
+| 9 | `latency_requirement_level` | 0.0101 | 12-dim FeatureVector field |
+| 10 | `delete_ratio` | 0.0098 | 12-dim FeatureVector field |
+| 11 | `data_distribution_code` | 0.0059 | 12-dim FeatureVector field |
+| 12 | `memory_constraint_level` | 0.0057 | 12-dim FeatureVector field |
 
 ---
 
@@ -44,17 +44,17 @@ Both models were trained on the empirical dataset using stratified train/test sp
 ```text
                          precision    recall  f1-score   support
 
-                  deque       1.00      1.00      1.00        70
-         hash_map_index       0.99      0.97      0.98        70
-               hash_set       1.00      0.92      0.96        26
-           keep_current       0.99      1.00      0.99       431
-              list_join       1.00      1.00      1.00        70
-        memoization_lru       1.00      1.00      1.00        70
+                  deque       1.00      1.00      1.00        93
+         hash_map_index       1.00      1.00      1.00        70
+               hash_set       1.00      1.00      1.00        27
+           keep_current       1.00      1.00      1.00       359
+              list_join       1.00      1.00      1.00        94
+        memoization_lru       1.00      1.00      1.00        94
 min_max_builtin_or_heap       1.00      1.00      1.00        70
 
-               accuracy                           0.99       807
-              macro avg       1.00      0.98      0.99       807
-           weighted avg       0.99      0.99      0.99       807
+               accuracy                           1.00       807
+              macro avg       1.00      1.00      1.00       807
+           weighted avg       1.00      1.00      1.00       807
 
 ```
 

@@ -110,11 +110,13 @@ class ProfilerEngine:
 
                 out_json = out_dir / "result.json"
 
-                # Ensure project root is in sys.path for sandbox module import
+                # Ensure workspace root (containing sandbox) is in sys.path
                 import sys
                 project_root = str(Path(__file__).resolve().parent.parent.parent.parent)
-                if project_root not in sys.path:
-                    sys.path.insert(0, project_root)
+                workspace_root = str(Path(__file__).resolve().parent.parent.parent.parent.parent)
+                for p in (project_root, workspace_root):
+                    if p not in sys.path:
+                        sys.path.insert(0, p)
 
                 # Import and run local runner mode
                 from sandbox.runner import run_profile_mode

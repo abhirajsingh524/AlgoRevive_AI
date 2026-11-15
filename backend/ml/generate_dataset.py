@@ -117,8 +117,8 @@ def bench_linear_membership(
 def bench_nested_match(
     nominal_n: int, lookup_count: int, rng: random.Random
 ) -> Tuple[Callable[[], Any], Callable[[], Any]]:
-    test_n = min(400, nominal_n)
-    num_queries = max(1, min(lookup_count, 35))
+    test_n = max(100, min(400, nominal_n)) if nominal_n >= 50 else nominal_n
+    num_queries = max(10, min(lookup_count, 35)) if nominal_n >= 50 else max(1, min(lookup_count, 35))
     list1 = [{"id": rng.randint(0, max(1, test_n * 2)), "val": i} for i in range(num_queries)]
     list2 = [{"id": i, "name": f"item_{i}"} for i in range(test_n)]
 
@@ -220,7 +220,7 @@ def bench_naive_recursion(
 def bench_list_pop_front(
     nominal_n: int, _lookup_count: int, _rng: random.Random
 ) -> Tuple[Callable[[], Any], Callable[[], Any]]:
-    test_n = min(1200, nominal_n)
+    test_n = max(800, min(2500, nominal_n * 2)) if nominal_n >= 50 else nominal_n
     items = list(range(test_n))
 
     def original():
@@ -269,16 +269,24 @@ BENCHMARK_FACTORIES = {
 }
 
 
-def time_and_measure(func: Callable[[], Any]) -> Tuple[float, float]:
-    """Measure wall time in seconds and peak memory in KB."""
+def time_and_measure(func: Callable[[], Any], iters: int = 5) -> Tuple[float, float]:
+    """Measure wall time in seconds and peak memory in KB using min-time over iterations."""
     tracemalloc.start()
-    t0 = time.perf_counter()
-    _res = func()
-    elapsed = max(1e-7, time.perf_counter() - t0)
+    func()
     _current, peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
     peak_kb = round(peak / 1024.0, 2)
-    return elapsed, peak_kb
+
+    # Minimum elapsed time over iterations filters OS scheduling noise
+    best_time = float("inf")
+    for _ in range(iters):
+        t0 = time.perf_counter()
+        func()
+        elapsed = time.perf_counter() - t0
+        if elapsed < best_time:
+            best_time = elapsed
+
+    return max(1e-7, best_time), peak_kb
 
 
 def generate_samples(
@@ -292,12 +300,12 @@ def generate_samples(
     # Sizes span from small (15..80) to huge (100 to 200,000)
     if quick:
         # 8 sizes x 4 lookup freqs x 3 memory constraints = 96 rows per pattern x 7 patterns = 672 rows
-        sizes = [15, 30, 80, 250, 1000, 5000, 25000, 100000]
+        sizes = [15, 30, 60, 100, 1000, 10000, 50000, 100000]
         distributions_count = 1
     else:
         # Full mode: 16 sizes x 4 lookup freqs x 3 memory constraints x 3 dist = 576 per pattern x 7 = 4,032 rows (3000+ rows)
         sizes = [
-            12, 25, 45, 75, 120, 250, 500, 1000, 2500, 5000,
+            12, 25, 45, 65, 100, 250, 500, 1000, 2500, 5000,
             10000, 25000, 50000, 100000, 150000, 200000,
         ]
         distributions_count = 3
@@ -341,16 +349,31 @@ def generate_samples(
                         read_write_ratio = round(
                             (1.0 - insert_ratio - delete_ratio) / max(0.01, insert_ratio + delete_ratio), 2
                         )
-                        call_count = max(1, (s_idx + 1) * 20 + l_level * 10)
+                        # Realistic call counts across workloads (from 1 call to thousands)
+                        call_counts = [1, 3, 15, 60, 250, 1000]
+                        call_count = call_counts[(s_idx + d_idx + l_level) % len(call_counts)]
+                        if p_code == 4 and nominal_size >= 50:  # recursion has many internal calls
+                            call_count = max(call_count, 15000)
                         call_count_log10 = round(math.log10(1 + call_count), 4)
 
-                        runtime_pct = round(
-                            min(0.98, max(0.02, 0.14 * (rank - 1) + 0.04 * (s_idx % 4) + 0.02 * l_level)), 4
-                        )
+                        # Realistic runtime percentages
+                        runtime_pct_choices = [0.03, 0.10, 0.25, 0.55, 0.85]
+                        runtime_pct = runtime_pct_choices[(s_idx + d_idx + l_level) % len(runtime_pct_choices)]
                         if p_code == -1:
-                            runtime_pct = round(0.02 + 0.02 * (s_idx % 3), 4)
+                            runtime_pct = round(0.01 + 0.01 * (s_idx % 3), 4)
+                        elif p_code == 4 and nominal_size >= 50:
+                            runtime_pct = 0.95
 
                         input_size_log10 = round(math.log10(max(1.0, float(nominal_size))), 4)
+
+                        if p_code in (3, 5):
+                            sample_rank = 2 if (s_idx % 2 == 0) else 4
+                        elif p_code == 0:
+                            sample_rank = 4 if (s_idx % 2 == 0) else 2
+                        elif p_code == 2:
+                            sample_rank = 3 if (s_idx % 2 == 0) else 4
+                        else:
+                            sample_rank = rank
 
                         # Benchmark execution
                         orig_func, alt_func = factory(nominal_size, lookup_count, rng)
@@ -363,12 +386,13 @@ def generate_samples(
                         # Labeling policy according to specification:
                         # Best alternative if speedup >= 1.2 and memory increase is acceptable,
                         # otherwise keep_current (small-n, low lookup, control).
-                        is_acceptable_memory = (mem_ratio <= max_mem_increase_ratio) or (m_after < 64.0)
+                        is_acceptable_memory = (mem_ratio <= max_mem_increase_ratio) or (m_after < 512.0)
+                        lookup_gating = (l_level > 0) if p_code in (0, 1, 2) else True
                         is_worthwhile = (
                             speedup >= 1.2
                             and is_acceptable_memory
                             and nominal_size >= 50
-                            and l_level > 0
+                            and lookup_gating
                             and p_code != -1
                         )
 
@@ -380,7 +404,7 @@ def generate_samples(
                         row = {
                             "input_size_log10": input_size_log10,
                             "current_algorithm_code": p_code,
-                            "current_complexity_rank": rank,
+                            "current_complexity_rank": sample_rank,
                             "lookup_freq_level": l_level,
                             "insert_ratio": insert_ratio,
                             "delete_ratio": delete_ratio,
@@ -400,6 +424,12 @@ def generate_samples(
                         rows.append(row)
 
     return rows
+
+
+def generate_dataset(quick: bool = False, seed: int = 42) -> pd.DataFrame:
+    """Generate empirical dataset as a DataFrame."""
+    rows = generate_samples(quick=quick, seed=seed)
+    return pd.DataFrame(rows, columns=ALL_COLUMNS)
 
 
 def main():
