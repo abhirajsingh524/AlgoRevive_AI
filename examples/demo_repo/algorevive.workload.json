@@ -1,0 +1,102 @@
+{
+  "sizes": [10, 50, 100],
+  "entrypoints": [
+    {
+      "function": "demo.operations:slow_membership",
+      "args": [
+        {
+          "kind": "records",
+          "size_factor": 1.0,
+          "fixed": null,
+          "options": {}
+        },
+        {
+          "kind": "int_list",
+          "size_factor": 0.5,
+          "fixed": null,
+          "options": {}
+        }
+      ]
+    },
+    {
+      "function": "demo.operations:nested_match",
+      "args": [
+        {
+          "kind": "two_record_lists",
+          "size_factor": 1.0,
+          "fixed": null,
+          "options": {}
+        }
+      ]
+    },
+    {
+      "function": "demo.operations:repeated_sort",
+      "args": [
+        {
+          "kind": "int_list",
+          "size_factor": 1.0,
+          "fixed": null,
+          "options": {}
+        },
+        {
+          "kind": "int_list",
+          "size_factor": 0.2,
+          "fixed": null,
+          "options": {}
+        }
+      ]
+    },
+    {
+      "function": "demo.operations:concat_report",
+      "args": [
+        {
+          "kind": "str_list",
+          "size_factor": 1.0,
+          "fixed": null,
+          "options": {}
+        }
+      ]
+    },
+    {
+      "function": "demo.operations:fib",
+      "args": [
+        {
+          "kind": "int",
+          "size_factor": 1.0,
+          "fixed": null,
+          "options": {}
+        }
+      ]
+    },
+    {
+      "function": "demo.operations:drain_queue",
+      "args": [
+        {
+          "kind": "int_list",
+          "size_factor": 1.0,
+          "fixed": null,
+          "options": {}
+        }
+      ]
+    },
+    {
+      "function": "demo.operations:efficient_total",
+      "args": [
+        {
+          "kind": "int_list",
+          "size_factor": 1.0,
+          "fixed": null,
+          "options": {}
+        }
+      ]
+    }
+  ],
+  "operation_mix": {
+    "lookup": 0.9,
+    "insert": 0.05,
+    "delete": 0.05
+  },
+  "memory_constraint": "low",
+  "latency_target_ms": null,
+  "seed": 42
+}
