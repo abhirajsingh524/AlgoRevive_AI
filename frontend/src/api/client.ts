@@ -8,6 +8,7 @@ import {
   FileRecord,
   FunctionRecord,
   Project,
+  Recommendation,
   Repository,
   User,
 } from '../types';
@@ -156,8 +157,8 @@ export const api = {
       const res = await apiClient.get<BottleneckRecord>(`/bottlenecks/${id}`);
       return res.data;
     },
-    getRecommendation: async (id: string): Promise<any> => {
-      const res = await apiClient.get(`/bottlenecks/${id}/recommendation`);
+    getRecommendation: async (id: string): Promise<Recommendation> => {
+      const res = await apiClient.get<Recommendation>(`/bottlenecks/${id}/recommendation`);
       return res.data;
     },
   },

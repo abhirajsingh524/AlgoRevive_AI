@@ -213,7 +213,39 @@ export interface BottleneckEvidence {
   features_array?: number[];
   affected_functions?: AffectedFunctionData[];
   why_flagged?: WhyFlaggedNodeData;
+  recommendation?: Recommendation;
   [key: string]: any;
+}
+
+export interface FeatureImportanceItem {
+  feature: string;
+  display_name: string;
+  importance: number;
+  value: number;
+  formatted_value: string;
+}
+
+export interface DataStructureRecommendation {
+  current_structure: string;
+  recommended_structure: string;
+  workload_reason: string;
+}
+
+export interface Recommendation {
+  id?: string;
+  bottleneck_id?: string;
+  current_algorithm: string;
+  recommended_algorithm: string;
+  alternatives?: string[];
+  expected_complexity?: string;
+  confidence: number;
+  reason: string;
+  feature_importance?: FeatureImportanceItem[];
+  source: 'rules' | 'ml' | string;
+  data_structure?: DataStructureRecommendation;
+  class_probabilities?: Record<string, number>;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface BottleneckRecord {
@@ -228,6 +260,7 @@ export interface BottleneckRecord {
   impact_score: number;
   severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | string;
   evidence: BottleneckEvidence | null;
+  recommendation?: Recommendation;
   created_at: string;
   updated_at: string;
   function?: FunctionRecord;

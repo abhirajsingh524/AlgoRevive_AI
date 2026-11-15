@@ -5,11 +5,13 @@ import {
   Database,
   GitFork,
   HelpCircle,
+  Sparkles,
   X,
 } from 'lucide-react';
 import { api } from '../api/client';
-import { BottleneckRecord } from '../types';
+import { BottleneckRecord, Recommendation } from '../types';
 import { MiniCallGraph } from './MiniCallGraph';
+import { RecommendationPanel } from './RecommendationPanel';
 import { WhyFlaggedTree } from './WhyFlaggedTree';
 
 interface BottleneckDetailDrawerProps {
@@ -23,15 +25,51 @@ export const BottleneckDetailDrawer: React.FC<BottleneckDetailDrawerProps> = ({
   repositoryId,
   onClose,
 }) => {
-  const [activeTab, setActiveTab] = useState<'why' | 'code' | 'workload' | 'callers'>('why');
+  const [activeTab, setActiveTab] = useState<'recommendation' | 'why' | 'code' | 'workload' | 'callers'>('recommendation');
   const [fileContent, setFileContent] = useState<string>('');
   const [loadingCode, setLoadingCode] = useState<boolean>(false);
+  const [recommendation, setRecommendation] = useState<Recommendation | null>(
+    bottleneck.recommendation || bottleneck.evidence?.recommendation || null
+  );
+  const [loadingRec, setLoadingRec] = useState<boolean>(false);
 
   const fn = bottleneck.function;
   const evidence = bottleneck.evidence || {};
   const workload = evidence.workload;
   const affectedCallers = evidence.affected_functions || [];
   const whyFlaggedNode = evidence.why_flagged;
+
+  useEffect(() => {
+    // If recommendation is already present, use it
+    const existingRec = bottleneck.recommendation || bottleneck.evidence?.recommendation;
+    if (existingRec) {
+      setRecommendation(existingRec);
+      return;
+    }
+
+    let isMounted = true;
+    const fetchRec = async () => {
+      try {
+        setLoadingRec(true);
+        const data = await api.bottlenecks.getRecommendation(bottleneck.id);
+        if (isMounted) {
+          setRecommendation(data);
+        }
+      } catch {
+        if (isMounted) {
+          setRecommendation(null);
+        }
+      } finally {
+        if (isMounted) {
+          setLoadingRec(false);
+        }
+      }
+    };
+    fetchRec();
+    return () => {
+      isMounted = false;
+    };
+  }, [bottleneck.id, bottleneck.recommendation, bottleneck.evidence]);
 
   useEffect(() => {
     if (activeTab === 'code' && fn && repositoryId && !fileContent) {
@@ -113,6 +151,17 @@ export const BottleneckDetailDrawer: React.FC<BottleneckDetailDrawerProps> = ({
       {/* Tabs */}
       <div className="flex border-b border-slate-800 px-5 bg-slate-950/40">
         <button
+          onClick={() => setActiveTab('recommendation')}
+          className={`flex items-center gap-1.5 py-3 px-3 border-b-2 text-sm font-medium transition ${
+            activeTab === 'recommendation'
+              ? 'border-indigo-500 text-indigo-400'
+              : 'border-transparent text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Sparkles className="w-4 h-4" />
+          Recommendation
+        </button>
+        <button
           onClick={() => setActiveTab('why')}
           className={`flex items-center gap-1.5 py-3 px-3 border-b-2 text-sm font-medium transition ${
             activeTab === 'why'
@@ -160,6 +209,15 @@ export const BottleneckDetailDrawer: React.FC<BottleneckDetailDrawerProps> = ({
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-5 space-y-4">
+        {/* Tab 0: Recommendation */}
+        {activeTab === 'recommendation' && (
+          <RecommendationPanel
+            bottleneck={bottleneck}
+            recommendation={recommendation}
+            loading={loadingRec}
+          />
+        )}
+
         {/* Tab 1: Why Flagged? */}
         {activeTab === 'why' && (
           <div className="space-y-4">
