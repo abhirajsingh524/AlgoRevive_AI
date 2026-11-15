@@ -179,9 +179,11 @@ def run_profile_mode(
                     # 1. cProfile run: collect function call counts and cumulative/own times
                     prof = cProfile.Profile()
                     prof.enable()
-                    args_prof = copy.deepcopy(call_args)
-                    target_fn(*args_prof)
-                    prof.disable()
+                    try:
+                        args_prof = copy.deepcopy(call_args)
+                        target_fn(*args_prof)
+                    finally:
+                        prof.disable()
 
                     stats = pstats.Stats(prof)
                     top_functions = []
@@ -213,11 +215,13 @@ def run_profile_mode(
 
                     # 3. Separate tracemalloc run for peak memory
                     tracemalloc.start()
-                    tracemalloc.reset_peak()
-                    args_mem = copy.deepcopy(call_args)
-                    target_fn(*args_mem)
-                    _, peak_bytes = tracemalloc.get_traced_memory()
-                    tracemalloc.stop()
+                    try:
+                        tracemalloc.reset_peak()
+                        args_mem = copy.deepcopy(call_args)
+                        target_fn(*args_mem)
+                        _, peak_bytes = tracemalloc.get_traced_memory()
+                    finally:
+                        tracemalloc.stop()
                     peak_memory_kb = round(peak_bytes / 1024, 2)
 
                     # 4. Separate CPU time measurement

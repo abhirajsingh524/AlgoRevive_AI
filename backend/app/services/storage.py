@@ -1,3 +1,4 @@
+import os
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -40,7 +41,13 @@ class StorageService(ABC):
 
 class LocalStorage(StorageService):
     def __init__(self, base_dir: Optional[str] = None):
-        self.base_dir = Path(base_dir or settings.LOCAL_STORAGE_DIR)
+        raw_dir = base_dir or settings.LOCAL_STORAGE_DIR
+        # Ensure cross-platform compatibility on Windows where /tmp is not writable
+        if os.name == "nt" and (raw_dir.startswith("/tmp") or raw_dir.startswith("\\tmp")):
+            import tempfile
+            self.base_dir = Path(tempfile.gettempdir()) / "algorevive-storage"
+        else:
+            self.base_dir = Path(raw_dir)
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
     def _get_path(self, key: str) -> Path:
