@@ -8,6 +8,11 @@ from app.engines.static_analyzer.analyzer import (
     ParameterInfo,
     StaticAnalyzer,
 )
+from app.engines.static_analyzer.patterns import (
+    VALID_PATTERN_IDS,
+    DetectedPattern,
+    PatternDetector,
+)
 
 __all__ = [
     "ClassInfo",
@@ -16,4 +21,7 @@ __all__ = [
     "ImportInfo",
     "ParameterInfo",
     "StaticAnalyzer",
+    "DetectedPattern",
+    "PatternDetector",
+    "VALID_PATTERN_IDS",
 ]
