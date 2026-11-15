@@ -127,7 +127,7 @@ def predict_recommendation(
     bottleneck: Optional[Bottleneck] = None,
     features: Optional[FeatureVector] = None,
     function: Optional[Function] = None,
-    min_confidence: float = 0.50,
+    min_confidence: float = 0.60,
 ) -> MLRecommendation:
     """Predict recommended algorithm using ML model with pattern masking and rule fallback."""
     # 1. Ensure FeatureVector exists
