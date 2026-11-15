@@ -76,11 +76,16 @@ def _verify_optimization_owner(optimization_id: str, user_id: str, db: Session) 
 
 
 def _dispatch_optimization(opt_id: str, db: Session, force_sync: bool = False) -> None:
-    """Attempt background dispatch via Celery; fallback to inline sync execution if worker unpingable or forced."""
+    """Attempt background dispatch via Celery; fallback to inline sync execution if broker unavailable or forced."""
     if force_sync:
         storage = get_storage_service()
         execute_optimization(db=db, storage=storage, optimization_id=opt_id)
         db.expire_all()
+        return
+
+    # In eager mode (e.g. testing), run directly through task
+    if getattr(celery_app.conf, "task_always_eager", False):
+        run_optimization.apply_async(args=[opt_id])
         return
 
     dispatched = False
@@ -89,13 +94,11 @@ def _dispatch_optimization(opt_id: str, db: Session, force_sync: bool = False) -
         host = parsed.hostname or "localhost"
         port = parsed.port or 6379
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(0.2)
+            s.settimeout(0.1)
             s.connect((host, port))
-        replies = celery_app.control.ping(timeout=0.2)
-        if replies:
-            run_optimization.apply_async(args=[opt_id])
-            dispatched = True
-            logger.info(f"Dispatched run_optimization for {opt_id} to Celery worker")
+        run_optimization.apply_async(args=[opt_id])
+        dispatched = True
+        logger.info(f"Dispatched run_optimization for {opt_id} to Celery worker")
     except Exception as e:
         logger.debug(f"Celery check/dispatch failed ({e}), falling back to synchronous execution")
 

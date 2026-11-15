@@ -152,7 +152,7 @@ class CSTLoopBodyTransformer(cst.CSTTransformer):
         self, orig_node: cst.AugAssign, updated_node: cst.AugAssign
     ) -> cst.BaseSmallStatement:
         if isinstance(orig_node.target, cst.Name) and orig_node.target.value == self.var_name:
-            if isinstance(orig_node.operator, cst.Plus):
+            if isinstance(orig_node.operator, (cst.AddAssign, cst.Plus)):
                 val_code = cst.Module(body=[]).code_for_node(orig_node.value)
                 return cst.parse_statement(f"{self.parts_var_name}.append({val_code})\n").body[0]
         return updated_node

@@ -171,7 +171,16 @@ class T5LruCacheTemplate(Template):
                     value=cst.Name("functools"),
                     attr=cst.Name("lru_cache"),
                 ),
-                args=[cst.Arg(keyword=cst.Name("maxsize"), value=cst.Name("None"))],
+                args=[
+                    cst.Arg(
+                        keyword=cst.Name("maxsize"),
+                        value=cst.Name("None"),
+                        equal=cst.AssignEqual(
+                            whitespace_before=cst.SimpleWhitespace(""),
+                            whitespace_after=cst.SimpleWhitespace(""),
+                        ),
+                    )
+                ],
             )
         )
 

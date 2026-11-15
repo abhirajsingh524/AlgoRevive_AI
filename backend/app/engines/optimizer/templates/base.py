@@ -204,7 +204,7 @@ def check_only_target_changed(
 def run_shared_guards(
     original_source: str,
     candidate_source: str,
-    target_function_name: str,
+    target_function_name: Union[str, Tuple[int, int]],
     filename: str = "candidate.py",
 ) -> GuardResult:
     """Run all mandatory shared candidate guards:
@@ -236,6 +236,23 @@ def run_shared_guards(
         return GuardResult(valid=False, error=f"Candidate code failed libcst parsing: {e}")
 
     # 3. Locate target function in both
+    if isinstance(target_function_name, tuple):
+        found_name: Optional[str] = None
+        for node in ast.walk(orig_ast):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if node.lineno == target_function_name[0] or (
+                    node.lineno <= target_function_name[0]
+                    and (node.end_lineno or node.lineno) >= target_function_name[1]
+                ):
+                    found_name = node.name
+                    break
+        if not found_name:
+            return GuardResult(
+                valid=False,
+                error=f"Target function at line range {target_function_name} not found in original source",
+            )
+        target_function_name = found_name
+
     orig_fn = find_function_ast(orig_ast, target_function_name)
     cand_fn = find_function_ast(cand_ast, target_function_name)
 
@@ -247,7 +264,7 @@ def run_shared_guards(
     if not cand_fn:
         return GuardResult(
             valid=False,
-            error=f"Target function '{target_function_name}' not found in candidate source",
+            error=f"Target function '{target_function_name}' not found in candidate source (name changed or deleted)",
         )
 
     # 4. Same function name and signature

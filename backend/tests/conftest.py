@@ -14,7 +14,8 @@ from app.main import app
 # Check if PostgreSQL from TEST_DATABASE_URL is reachable
 test_db_url = os.getenv("TEST_DATABASE_URL") or settings.TEST_DATABASE_URL
 try:
-    engine = create_engine(test_db_url, pool_pre_ping=True)
+    extra_args = {"connect_timeout": 1} if "postgresql" in test_db_url else {}
+    engine = create_engine(test_db_url, connect_args=extra_args, pool_pre_ping=True)
     with engine.connect():
         pass
 except Exception:

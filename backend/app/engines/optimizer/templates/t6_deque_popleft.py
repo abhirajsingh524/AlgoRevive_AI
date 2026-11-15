@@ -52,6 +52,21 @@ def _detect_local_deque_popleft(
     if not local_lists:
         return None
 
+    # Disallow lists that are modified with methods unsupported by deque (e.g. .sort())
+    unsupported_deque_methods = {"sort", "reverse"}
+    disqualified: Set[str] = set()
+    for child in ast.walk(fn_ast):
+        if isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute):
+            if isinstance(child.func.value, ast.Name) and child.func.value.id in local_lists:
+                if child.func.attr in unsupported_deque_methods:
+                    disqualified.add(child.func.value.id)
+
+    for dis in disqualified:
+        local_lists.pop(dis, None)
+
+    if not local_lists:
+        return None
+
     # 3. Check loops for var.pop(0)
     for loop_node in ast.walk(fn_ast):
         if not isinstance(loop_node, (ast.For, ast.While)):

@@ -102,9 +102,12 @@ class CSTSortExtremeTransformer(cst.CSTTransformer):
         if is_zero_index:
             self.transformed = True
             target_func_name = "max" if is_reverse else "min"
-            new_args = [iter_arg]
+            clean_iter_arg = iter_arg.with_changes(comma=cst.MaybeSentinel.DEFAULT)
+            new_args = [clean_iter_arg]
             if key_arg:
-                new_args.append(key_arg)
+                clean_key_arg = key_arg.with_changes(comma=cst.MaybeSentinel.DEFAULT)
+                clean_iter_arg = iter_arg.with_changes(comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" ")))
+                new_args = [clean_iter_arg, clean_key_arg]
             return cst.Call(func=cst.Name(target_func_name), args=new_args)
 
         # Check for [:k]
@@ -114,9 +117,13 @@ class CSTSortExtremeTransformer(cst.CSTTransformer):
             k_expr = slice_item.upper
             heap_func_name = "nlargest" if is_reverse else "nsmallest"
 
-            new_args = [cst.Arg(value=k_expr), iter_arg]
+            k_arg = cst.Arg(value=k_expr, comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" ")))
+            clean_iter_arg = iter_arg.with_changes(comma=cst.MaybeSentinel.DEFAULT)
+            new_args = [k_arg, clean_iter_arg]
             if key_arg:
-                new_args.append(key_arg)
+                clean_key_arg = key_arg.with_changes(comma=cst.MaybeSentinel.DEFAULT)
+                clean_iter_arg = iter_arg.with_changes(comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" ")))
+                new_args = [k_arg, clean_iter_arg, clean_key_arg]
 
             return cst.Call(
                 func=cst.Attribute(value=cst.Name("heapq"), attr=cst.Name(heap_func_name)),
