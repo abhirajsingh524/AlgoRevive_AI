@@ -1,4 +1,4 @@
-# AlgoRevive AI - API Reference (Phase 1)
+# AlgoRevive AI - API Reference (Phase 5: ML Recommendation Engine)
 
 All endpoints are prefixed with `/api/v1`. Authentication uses standard HTTP Bearer tokens with JWT: `Authorization: Bearer <access_token>`.
 
@@ -732,13 +732,50 @@ Retrieves detailed information and complete evidence for a specific bottleneck.
 ---
 
 ### GET `/api/v1/bottlenecks/{bottleneck_id}/recommendation`
-Retrieves algorithm recommendation for a bottleneck. In Phase 4, returns `404 Not Found` with code `NOT_READY` until Phase 5.
+Retrieves algorithmic and data structure recommendations, per-feature importances, expected complexity transitions, and plain-English factor explanations for a bottleneck.
 
 - **Auth Required:** Yes (Owner-scoped)
-- **Response 404 Not Found:**
+- **Response 200 OK:**
 ```json
 {
-  "detail": "Recommendation not ready",
-  "code": "NOT_READY"
+  "id": "180373e0-f0c3-42bf-9c70-ea5f2cbbd377",
+  "bottleneck_id": "b-6e9381ea-3908-4171-aa31-e1cbfa1b8f04",
+  "current_algorithm": "linear_scan_membership",
+  "recommended_algorithm": "hash_set",
+  "expected_complexity": "O(n * m) -> O(n + m)",
+  "confidence": 0.8315,
+  "alternatives": [
+    "keep_current"
+  ],
+  "reason": "Recommendation of hash_set is driven primarily by: Detected Pattern (LINEAR_MEMBERSHIP_IN_LOOP, 43.3%), Input Size (100 items, 14.9%), and Asymptotic Complexity (O(n^2), 10.0%). Recommended structure: set (Workload performs repeated membership queries across 100 items. Replacing list with a hash set provides O(1) average lookup time.)",
+  "source": "ml",
+  "feature_importance": [
+    {
+      "feature": "current_algorithm_code",
+      "display_name": "Detected Pattern",
+      "importance": 0.4331,
+      "value": 0.0,
+      "formatted_value": "LINEAR_MEMBERSHIP_IN_LOOP"
+    },
+    {
+      "feature": "input_size_log10",
+      "display_name": "Input Size (N)",
+      "importance": 0.1489,
+      "value": 2.0,
+      "formatted_value": "100 items"
+    },
+    {
+      "feature": "current_complexity_rank",
+      "display_name": "Asymptotic Complexity",
+      "importance": 0.0999,
+      "value": 4.0,
+      "formatted_value": "O(n^2)"
+    }
+  ],
+  "created_at": "2026-11-15T15:00:00Z",
+  "updated_at": "2026-11-15T15:00:00Z"
 }
 ```
+- **Errors:**
+  - `404 Not Found` (`NOT_FOUND`): Bottleneck not found or user is not the owner.
+  - `404 Not Found` (`NOT_READY`): Recommendation not yet ready (analysis run currently in progress).

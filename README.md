@@ -55,10 +55,11 @@ python -m unittest discover -s examples/demo_repo/tests
      - **Recharts Line Chart:** Runtime vs. input size $n$ on a log-log scale per entrypoint demonstrating empirical growth curves.
      - **Recharts Bar Chart:** Top functions sorted by cumulative execution time.
      - **Comparison Table:** Side-by-side comparison of empirical growth exponent $\alpha$, static complexity class ($O(n^2)$, $O(2^n)$), severity, and peak memory.
-    - Inspect the **Bottleneck Explorer**:
+    - Inspect the **Bottleneck Explorer & Recommendations**:
       - Table of detected bottlenecks ranked by composite impact score (0.40 * runtime_pct + 0.25 * static_norm + 0.20 * call_freq_norm + 0.15 * mem_norm).
       - Severity chips (CRITICAL, HIGH, MEDIUM, LOW) and visual runtime contribution bars.
       - Click any bottleneck to open the **Detail Drawer**:
+        - **Recommendation**: Hybrid ML & rule-based recommendation panel with current-to-recommended algorithm arrow, confidence ring, expected complexity transition, alternative candidates, Recharts horizontal feature importance bar chart, plain-English reason sentence citing real values, data structure optimization card, and source badge (`ML` vs `RULES`).
         - **Why Flagged?**: Structured diagnostic tree showing exact weights, metrics, and evidence without invented numbers.
         - **Code Highlight**: Monaco editor highlighting the bottleneck function with exact line numbers.
         - **Workload Profile**: Characterized input size, lookup frequency, insert/delete ratios, read/write ratio, data distribution, and constraints.
@@ -67,6 +68,20 @@ python -m unittest discover -s examples/demo_repo/tests
    - **Files:** Browse source code in the Monaco code editor.
    - **Functions:** Inspect estimated time complexities (`O(n^2)`, `O(2^n)`), severity badges (`LOW`, `HIGH`, `CRITICAL`), loop depths, recursion flags, and detected pattern chips (`LINEAR_MEMBERSHIP_IN_LOOP`, `NAIVE_RECURSION`, etc.).
    - **Call Graph:** Explore an interactive React Flow visualization of function calls with hierarchical layered layout, node severity coloring, fan-in/fan-out metrics, minimap, and zoom controls.
+
+---
+
+### Machine Learning Recommender Training
+To regenerate the empirical dataset and train the recommendation models (RandomForest and XGBoost):
+```bash
+# Generate empirical benchmark dataset (4,000+ rows)
+python -m ml.generate_dataset
+
+# Train models, select best by Macro F1, and save artifacts
+python -m ml.train
+# Or inside docker:
+docker compose exec backend python -m ml.train
+```
 
 ---
 
@@ -82,3 +97,4 @@ docker compose --profile build build sandbox-image
 - Contract: [docs/ARCHITECTURE_CONTRACT.md](docs/ARCHITECTURE_CONTRACT.md)
 - Progress & Status: [docs/PROGRESS.md](docs/PROGRESS.md)
 - API Documentation: [docs/API.md](docs/API.md)
+- ML Evaluation Report: [docs/ML_REPORT.md](docs/ML_REPORT.md)

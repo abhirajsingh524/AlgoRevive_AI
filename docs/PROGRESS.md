@@ -1,6 +1,88 @@
 # AlgoRevive AI - Progress Log
 
-## Current Status: Phase 4 (Bottlenecks, Workload Characterization and Explainability) Complete
+## Current Status: Phase 5 (ML Recommendation Engine) Complete
+
+---
+
+### Phase 5: Machine Learning Recommendation Engine
+- **Status:** Completed
+- **Goal:** A hybrid recommender (rules + Random Forest / XGBoost) that returns a recommended algorithm or data structure, alternatives, confidence, expected complexity, reasons, and per-feature importance - with graceful fallback to deterministic rules if the model file is missing or low-confidence (< 0.50).
+
+---
+
+### Phase 5 Done Items:
+
+1. **Empirical Dataset Generator (`backend/ml/generate_dataset.py`, `backend/ml/data/dataset.csv`):**
+   - Generated a reproducible dataset (4,032 rows) by timing small, trusted reference implementations (original vs. optimized alternative) for each of the 6 Contract G3 patterns across problem sizes ($n \in [100, 200,000]$), operation mixes, data distributions, and memory constraints.
+   - Ground-truth labels derive from empirical speedup and memory measurements: alternative assigned if $\text{speedup} \ge 1.2$ and memory growth is acceptable, otherwise `keep_current` (incorporating small-$n$, low-lookup, and single-call cases so the model learns when *not* to optimize).
+   - Fixed random seed and deterministic row ordering.
+   - Provides `--quick` mode (~672 rows, < 2 minutes) and full mode (4,032 rows, 514 KB CSV, under 3 MB contract limit).
+   - Saved in `backend/ml/data/dataset.csv`.
+
+2. **Model Training & Artifacts (`backend/ml/train.py`, `backend/ml/models/recommender.joblib`, `backend/ml/models/metadata.json`, `docs/ML_REPORT.md`):**
+   - Implemented stratified 80/20 train/test split with fixed seed (`42`).
+   - Trained and evaluated `RandomForestClassifier` and `XGBClassifier`.
+   - Tracked all contract metrics: Accuracy, Macro Precision, Macro Recall, Macro F1, Top-3 Accuracy, and Mean Reciprocal Rank (MRR).
+   - Both models scored Macro F1 = 1.0000 on held-out test data; Random Forest selected as primary model for explainability and dependency simplicity.
+   - Serialized model artifact to `backend/ml/models/recommender.joblib` and comprehensive metadata (feature ordering, classes, metrics, library versions, seed, date) to `backend/ml/models/metadata.json`.
+   - Command repeatable via `python -m ml.train` or `docker compose exec backend python -m ml.train`.
+
+3. **Rule-Based Fallback Engine (`backend/app/engines/recommender/rules.py`):**
+   - Workload-gated deterministic fallback mapping detected pattern $\to$ candidate class.
+   - Enforces workload gating: preserves current implementation (`keep_current`) if input size is low ($n < 50$), lookup frequency is low, call count is 1, or runtime percentage is negligible.
+   - Provides expected complexity transitions for each class (e.g., $O(n \cdot m) \to O(n + m)$, $O(2^n) \to O(n)$, $O(n \log n) \to O(1)$).
+
+4. **ML Inference Engine with Pattern Masking & Fallback (`backend/app/engines/recommender/ml.py`):**
+   - Thread-safe lazy singleton model loading.
+   - Strict pattern compatibility masking (Contract G3/G4 mapping matrix): masks probabilities to only pattern-compatible candidate classes so the model cannot recommend an unrelated algorithm.
+   - Automatic fallback to `rules` (`source="rules"`) when:
+     - Model artifact (`recommender.joblib`) is missing or fails to load.
+     - Top model confidence is below the $0.50$ threshold.
+     - Bottleneck has no detected pattern and model confidence is weak.
+
+5. **Data Structure Recommendation & Combined Engine (`backend/app/engines/recommender/datastructures.py`, `backend/app/engines/recommender/__init__.py`):**
+   - Workload-aware data structure mapping:
+     - List $\to$ Set/Hash for repeated membership queries.
+     - Repeated linear lookup $\to$ indexed dict.
+     - Priority operations $\to$ min-heap.
+     - FIFO queue $\to$ collections.deque.
+     - LIFO queue $\to$ list stack.
+   - Unified `RecommendationEngine.recommend(bottleneck, features)` coordinating algorithm and data structure proposals into a unified recommendation.
+
+6. **Explainability Engine & Reason Synthesis (`backend/app/engines/recommender/explain.py`):**
+   - Per-prediction feature importance extraction: uses SHAP `TreeExplainer` when available, falling back to global Gini importances scaled by per-feature deviations from the training mean.
+   - Generates plain-English reason sentences citing top factors with exact real values and percentages (e.g., `"Detected Pattern (LINEAR_MEMBERSHIP_IN_LOOP, 43.3%), Input Size (100 items, 14.9%)..."`).
+   - Registered `recommend` analysis pipeline stage in `backend/app/services/analysis_service.py` and persisted results in the `recommendations` table.
+   - Implemented `GET /api/v1/bottlenecks/{id}/recommendation` returning the complete recommendation payload.
+
+7. **Frontend Recommendation Panel (`frontend/src/components/RecommendationPanel.tsx`, `BottleneckDetailDrawer.tsx`):**
+   - Current $\to$ Recommended visual arrow with source badge (`ML Model` vs `Rule-based Fallback`).
+   - Confidence percentage badge / ring.
+   - Expected complexity transition card (e.g., $O(n \cdot m) \to O(n + m)$).
+   - Alternatives list with individual confidence scores.
+   - Horizontal Recharts bar chart displaying ranked feature importance factors.
+   - Plain-English reason explanation alert citing real workload metrics.
+   - Data structure optimization card displaying current vs. recommended structure and workload reason.
+
+8. **Comprehensive Test Suite (`backend/tests/test_recommender.py`):**
+   - 8 comprehensive tests covering:
+     - Dataset generator determinism with `--quick`.
+     - Model artifact loading and validation of Macro F1 $\ge 0.75$ on held-out split.
+     - Pattern masking compatibility ensuring valid candidate recommendations.
+     - Graceful fallback to rules when `recommender.joblib` is deleted/missing.
+     - Fallback to rules when model prediction confidence is low ($< 0.50$).
+     - Feature importance normalization ($\sum \approx 1.0$).
+     - Plain-English reason sentence verification citing real workload values.
+     - End-to-end integration test on `examples/demo_repo`:
+       - `slow_membership` $\to$ `hash_set`
+       - `nested_match` $\to$ `hash_map_index`
+       - `repeated_sort` $\to$ `min_max_builtin_or_heap`
+       - `concat_report` $\to$ `list_join`
+       - `fib` $\to$ `memoization_lru`
+       - `drain_queue` $\to$ `deque`
+       - `efficient_total` $\to$ `keep_current`
+
+---
 
 ---
 
@@ -124,7 +206,7 @@
    .venv/Scripts/ruff check backend sandbox
    .venv/Scripts/pytest -c backend/pytest.ini backend/tests -v
    ```
-   Assert: 42 passed, 7 skipped (docker isolation tests cleanly skipped when Docker unavailable).
+   Assert: 50 passed, 7 skipped (all 8 recommender tests passed; docker isolation tests cleanly skipped when Docker unavailable).
 
 2. **Run Frontend Build & Vitest:**
    ```bash
@@ -132,37 +214,49 @@
    npm run build
    npm test
    ```
-   Assert: TypeScript strict check, Vite bundle generation, and 4/4 Vitest tests passing.
+   Assert: TypeScript strict check, Vite bundle generation, and 7/7 Vitest tests passing.
 
-3. **Verify Demo Repository Bottleneck Ranks & Control Function:**
+3. **Verify Demo Repository Recommendations & Control Function:**
    ```bash
    cd AlgoRevive_AI
    $env:PYTHONPATH='backend'
    .venv/Scripts/python -c "
-   import json
-   from app.engines.bottleneck.scorer import calculate_impact
-   # slow_membership: rank 4, runtime_pct ~0.95 -> impact >= 0.70 (HIGH/CRITICAL)
-   sm = calculate_impact(complexity_rank=4, runtime_pct=0.95, call_count=100, max_calls=100, memory_peak_kb=100, max_peak_mem_kb=100)
-   print('slow_membership:', sm.impact_score, sm.severity)
-   # efficient_total: rank 2, runtime_pct ~0.02 -> impact < 0.25 (LOW)
-   eff = calculate_impact(complexity_rank=2, runtime_pct=0.02, call_count=1, max_calls=100, memory_peak_kb=10, max_peak_mem_kb=100)
-   print('efficient_total:', eff.impact_score, eff.severity)
-   assert eff.severity == 'LOW'
-   assert sm.impact_score > eff.impact_score
+   from app.engines.recommender.ml import MLRecommender
+   from app.engines.recommender.rules import RuleBasedRecommender
+   from app.models.analysis import FeatureVector
+   ml = MLRecommender()
+   assert ml.is_available()
+   # slow_membership
+   fv = FeatureVector(input_size_log10=2.0, current_algorithm_code=0, current_complexity_rank=4, lookup_freq_level=2, insert_ratio=0.0, delete_ratio=0.0, read_write_ratio=10.0, data_distribution_code=0, memory_constraint_level=0, latency_requirement_level=1, call_count_log10=2.0, runtime_pct=0.95)
+   pred = ml.predict(fv, allowed_classes=['hash_set', 'keep_current'])
+   print('slow_membership:', pred.recommended_class, pred.confidence)
+   assert pred.recommended_class == 'hash_set'
+   # efficient_total
+   fv_eff = FeatureVector(input_size_log10=2.0, current_algorithm_code=-1, current_complexity_rank=2, lookup_freq_level=0, insert_ratio=0.0, delete_ratio=0.0, read_write_ratio=1.0, data_distribution_code=0, memory_constraint_level=0, latency_requirement_level=0, call_count_log10=0.0, runtime_pct=0.01)
+   pred_eff = ml.predict(fv_eff, allowed_classes=None)
+   print('efficient_total:', pred_eff.recommended_class, pred_eff.confidence)
+   assert pred_eff.recommended_class == 'keep_current'
+   print('Verification succeeded!')
    "
    ```
 
-4. **Verify Live Bottleneck Explorer in Browser:**
+4. **Verify Live Bottleneck Explorer & Recommendation Panel in Browser:**
    - Run stack: `docker compose up --build`.
    - Open `http://localhost:5173`, upload `examples/demo_repo/demo_repo.zip`.
    - Run analysis with `algorevive.workload.json`.
    - Inspect the **Ranked Bottlenecks** table: `slow_membership`, `nested_match`, and `fib` appear at the top.
-   - Click any bottleneck to open the **Detail Drawer** and inspect the **Why Flagged?** tree, Monaco highlighted code, workload profile, and React Flow caller graph.
+   - Click any bottleneck to open the **Detail Drawer** and inspect the **Recommendation Panel**:
+     - Visual arrow (`linear_scan_membership` $\to$ `hash_set`).
+     - Confidence ring and expected complexity transition ($O(n \cdot m) \to O(n + m)$).
+     - Alternatives list with scores.
+     - Horizontal Recharts bar chart showing feature importances.
+     - Plain-English reason sentence citing exact runtime metrics.
+     - Source badge indicating `ML Model` (or `Rule-based Fallback` when model is omitted).
 
 ---
 
 ### Limitations
-- Recommendations endpoint (`GET /bottlenecks/{id}/recommendation`) returns `404 Not Found` with `code: "NOT_READY"` until Phase 5 (Rule & ML-based Recommender).
+- Phase 6 (Code Transformation Engine) will introduce AST rewriting and candidate code synthesis. In Phase 5, recommendation output is purely algorithmic and data-structure focused without generating executable replacement code.
 - In environments without an active Docker daemon, profiling is executed in temporary directories with Python standard library hooks; full container isolation is enforced whenever Docker is active.
 
 ---
