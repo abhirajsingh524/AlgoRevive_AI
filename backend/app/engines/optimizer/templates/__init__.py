@@ -14,6 +14,8 @@ from app.engines.optimizer.templates.base import (
 )
 from app.engines.optimizer.templates.t1_set_membership import T1SetMembershipTemplate
 from app.engines.optimizer.templates.t2_dict_index_join import T2DictIndexJoinTemplate
+from app.engines.optimizer.templates.t3_min_max_heap import T3MinMaxHeapTemplate
+from app.engines.optimizer.templates.t4_join_strings import T4JoinStringsTemplate
 
 __all__ = [
     "ALLOWED_MODULES",
@@ -22,6 +24,8 @@ __all__ = [
     "TemplateResult",
     "T1SetMembershipTemplate",
     "T2DictIndexJoinTemplate",
+    "T3MinMaxHeapTemplate",
+    "T4JoinStringsTemplate",
     "check_only_target_changed",
     "compute_changed_lines",
     "find_target_function_cst",
