@@ -7,7 +7,20 @@ import { AuthProvider } from './context/AuthContext';
 import { FileTree } from './components/FileTree';
 import { FunctionsTable } from './components/FunctionsTable';
 import { RecommendationPanel } from './components/RecommendationPanel';
+import { OptimizationPanel } from './components/OptimizationPanel';
+import { api } from './api/client';
 import { BottleneckRecord, FileRecord, Recommendation } from './types';
+
+vi.mock('@monaco-editor/react', () => ({
+  default: ({ value }: { value: string }) => <div data-testid="monaco-editor">{value}</div>,
+  DiffEditor: ({ original, modified }: { original: string; modified: string }) => (
+    <div data-testid="monaco-diff-editor">
+      <div data-testid="diff-original">{original}</div>
+      <div data-testid="diff-modified">{modified}</div>
+    </div>
+  ),
+}));
+
 
 describe('Frontend Shell & Auth Flow', () => {
   it('renders login form and validates input fields', async () => {
@@ -306,5 +319,132 @@ describe('Frontend Shell & Auth Flow', () => {
     );
 
     expect(screen.getByText('No Recommendation Available')).toBeInTheDocument();
+  });
+
+  it('renders OptimizationPanel with mode selector and disabled LLM notice', async () => {
+    vi.spyOn(api.optimizations, 'getConfig').mockResolvedValue({
+      llm_provider: 'none',
+      llm_enabled: false,
+      llm_model: null,
+      templates: ['T1_SET_MEMBERSHIP', 'T2_DICT_INDEX_JOIN'],
+    });
+    vi.spyOn(api.optimizations, 'list').mockResolvedValue([]);
+
+    const mockBottleneck: BottleneckRecord = {
+      id: 'b-opt-1',
+      analysis_run_id: 'run-1',
+      function_id: 'fn-1',
+      static_score: 0.8,
+      runtime_score: 0.7,
+      call_count: 50,
+      runtime_pct: 0.4,
+      memory_peak_kb: 512,
+      impact_score: 0.85,
+      severity: 'CRITICAL',
+      evidence: {
+        recommendation: {
+          current_algorithm: 'linear_scan',
+          recommended_algorithm: 'hash_set',
+          confidence: 0.95,
+          reason: 'Set membership O(1)',
+          source: 'rules',
+        },
+      },
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+      function: {
+        id: 'fn-1',
+        file_id: 'f-1',
+        repository_id: 'r-1',
+        qualified_name: 'demo.operations.slow_membership',
+        name: 'slow_membership',
+        lineno: 10,
+        end_lineno: 25,
+        params: ['items', 'queries'],
+        complexity_class: 'O(n^2)',
+        complexity_rank: 4,
+        loop_depth: 2,
+        has_recursion: false,
+        patterns: [{ pattern_id: 'LINEAR_MEMBERSHIP_IN_LOOP', line_number: 14, matched_snippet: 'if x in items:' }],
+        severity: 'CRITICAL',
+        metrics: null,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+    };
+
+    render(
+      <OptimizationPanel
+        bottleneck={mockBottleneck}
+        originalSource="def slow_membership(items, queries):\n    res = []\n    for q in queries:\n        if q in items:\n            res.append(q)\n    return res"
+        loadingSource={false}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/Generate Candidate Optimization/i)).toBeInTheDocument();
+      expect(screen.getByText(/Deterministic Template/i)).toBeInTheDocument();
+      expect(screen.getByText(/LLM Synthesis/i)).toBeInTheDocument();
+      expect(screen.getByText(/LLM disabled/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Generate Candidate/i })).toBeInTheDocument();
+    });
+  });
+
+  it('renders OptimizationPanel with generated candidate diff and rationale', async () => {
+    vi.spyOn(api.optimizations, 'getConfig').mockResolvedValue({
+      llm_provider: 'none',
+      llm_enabled: false,
+      llm_model: null,
+      templates: ['T1_SET_MEMBERSHIP'],
+    });
+    vi.spyOn(api.optimizations, 'list').mockResolvedValue([
+      {
+        id: 'opt-101',
+        recommendation_id: 'rec-1',
+        mode: 'template',
+        template_id: 'T1_SET_MEMBERSHIP',
+        candidate_code: 'def slow_membership(items, queries):\n    items_set = set(items)\n    return [q for q in queries if q in items_set]',
+        patch: '--- original.py\n+++ candidate.py\n@@ -1,5 +1,3 @@',
+        status: 'generated',
+        decision_reason: {
+          rationale: 'Converted linear list membership into O(1) set lookup.',
+          safety_notes: 'Elements must be hashable.',
+          changed_lines: [11, 12],
+        },
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+    ]);
+
+    const mockBottleneck: BottleneckRecord = {
+      id: 'b-opt-2',
+      analysis_run_id: 'run-1',
+      function_id: 'fn-1',
+      static_score: 0.8,
+      runtime_score: 0.7,
+      call_count: 50,
+      runtime_pct: 0.4,
+      memory_peak_kb: 512,
+      impact_score: 0.85,
+      severity: 'CRITICAL',
+      evidence: null,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    };
+
+    render(
+      <OptimizationPanel
+        bottleneck={mockBottleneck}
+        originalSource="def slow_membership(items, queries):\n    res = []\n    for q in queries:\n        if q in items:\n            res.append(q)\n    return res"
+        loadingSource={false}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/Candidate Generated Successfully/i)).toBeInTheDocument();
+      expect(screen.getByText(/Converted linear list membership into O\(1\) set lookup\./i)).toBeInTheDocument();
+      expect(screen.getByText(/Elements must be hashable\./i)).toBeInTheDocument();
+      expect(screen.getByTestId('monaco-diff-editor')).toBeInTheDocument();
+    });
   });
 });

@@ -265,3 +265,32 @@ export interface BottleneckRecord {
   updated_at: string;
   function?: FunctionRecord;
 }
+
+export interface OptimizationRecord {
+  id: string;
+  recommendation_id: string;
+  mode: 'template' | 'llm' | string;
+  template_id?: string | null;
+  candidate_code?: string | null;
+  patch?: string | null;
+  status: 'generating' | 'generated' | 'validating' | 'benchmarking' | 'completed' | 'failed' | string;
+  decision?: 'ACCEPT' | 'REVIEW' | 'REJECT' | null;
+  decision_reason?: {
+    rationale?: string;
+    safety_notes?: string;
+    changed_lines?: number[];
+    [key: string]: any;
+  } | null;
+  human_review?: any;
+  error?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OptimizationConfig {
+  llm_provider: string;
+  llm_enabled: boolean;
+  llm_model?: string | null;
+  templates: string[];
+}
+

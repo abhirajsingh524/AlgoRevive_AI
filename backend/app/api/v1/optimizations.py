@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import socket
-from typing import List
+from typing import Any, List
 from urllib.parse import urlparse
 import uuid
 
@@ -182,6 +182,28 @@ def list_bottleneck_optimizations(
         .order_by(Optimization.created_at.desc())
         .all()
     )
+
+
+@router.get("/optimizations/config")
+def get_optimizations_config(
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Retrieve optimization generator configuration (supported templates and LLM status)."""
+    p_name = settings.LLM_PROVIDER.lower().strip()
+    is_enabled = p_name not in ("none", "null", "")
+    return {
+        "llm_provider": settings.LLM_PROVIDER,
+        "llm_enabled": is_enabled,
+        "llm_model": settings.LLM_MODEL if is_enabled else None,
+        "templates": [
+            "T1_SET_MEMBERSHIP",
+            "T2_DICT_INDEX_JOIN",
+            "T3_MIN_MAX_HEAP",
+            "T4_JOIN_STRINGS",
+            "T5_LRU_CACHE",
+            "T6_DEQUE_POPLEFT",
+        ],
+    }
 
 
 @router.get(

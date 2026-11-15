@@ -7,10 +7,12 @@ import {
   HelpCircle,
   Sparkles,
   X,
+  Zap,
 } from 'lucide-react';
 import { api } from '../api/client';
 import { BottleneckRecord, Recommendation } from '../types';
 import { MiniCallGraph } from './MiniCallGraph';
+import { OptimizationPanel } from './OptimizationPanel';
 import { RecommendationPanel } from './RecommendationPanel';
 import { WhyFlaggedTree } from './WhyFlaggedTree';
 
@@ -25,7 +27,9 @@ export const BottleneckDetailDrawer: React.FC<BottleneckDetailDrawerProps> = ({
   repositoryId,
   onClose,
 }) => {
-  const [activeTab, setActiveTab] = useState<'recommendation' | 'why' | 'code' | 'workload' | 'callers'>('recommendation');
+  const [activeTab, setActiveTab] = useState<
+    'recommendation' | 'optimization' | 'why' | 'code' | 'workload' | 'callers'
+  >('recommendation');
   const [fileContent, setFileContent] = useState<string>('');
   const [loadingCode, setLoadingCode] = useState<boolean>(false);
   const [recommendation, setRecommendation] = useState<Recommendation | null>(
@@ -72,7 +76,7 @@ export const BottleneckDetailDrawer: React.FC<BottleneckDetailDrawerProps> = ({
   }, [bottleneck.id, bottleneck.recommendation, bottleneck.evidence]);
 
   useEffect(() => {
-    if (activeTab === 'code' && fn && repositoryId && !fileContent) {
+    if ((activeTab === 'code' || activeTab === 'optimization') && fn && repositoryId && !fileContent) {
       const fetchCode = async () => {
         try {
           setLoadingCode(true);
@@ -162,6 +166,17 @@ export const BottleneckDetailDrawer: React.FC<BottleneckDetailDrawerProps> = ({
           Recommendation
         </button>
         <button
+          onClick={() => setActiveTab('optimization')}
+          className={`flex items-center gap-1.5 py-3 px-3 border-b-2 text-sm font-medium transition ${
+            activeTab === 'optimization'
+              ? 'border-indigo-500 text-indigo-400'
+              : 'border-transparent text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Zap className="w-4 h-4 text-amber-400" />
+          Optimization
+        </button>
+        <button
           onClick={() => setActiveTab('why')}
           className={`flex items-center gap-1.5 py-3 px-3 border-b-2 text-sm font-medium transition ${
             activeTab === 'why'
@@ -215,6 +230,15 @@ export const BottleneckDetailDrawer: React.FC<BottleneckDetailDrawerProps> = ({
             bottleneck={bottleneck}
             recommendation={recommendation}
             loading={loadingRec}
+          />
+        )}
+
+        {/* Tab 0.5: Optimization Generation */}
+        {activeTab === 'optimization' && (
+          <OptimizationPanel
+            bottleneck={bottleneck}
+            originalSource={fileContent}
+            loadingSource={loadingCode}
           />
         )}
 

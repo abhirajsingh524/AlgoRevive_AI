@@ -7,6 +7,8 @@ import {
   FileContent,
   FileRecord,
   FunctionRecord,
+  OptimizationConfig,
+  OptimizationRecord,
   Project,
   Recommendation,
   Repository,
@@ -159,6 +161,34 @@ export const api = {
     },
     getRecommendation: async (id: string): Promise<Recommendation> => {
       const res = await apiClient.get<Recommendation>(`/bottlenecks/${id}/recommendation`);
+      return res.data;
+    },
+  },
+  optimizations: {
+    create: async (
+      bottleneckId: string,
+      payload?: { mode?: 'template' | 'llm' | string; template_id?: string },
+      sync: boolean = false
+    ): Promise<OptimizationRecord> => {
+      const res = await apiClient.post<OptimizationRecord>(
+        `/bottlenecks/${bottleneckId}/optimizations`,
+        payload || { mode: 'template' },
+        { params: sync ? { sync: true } : undefined }
+      );
+      return res.data;
+    },
+    list: async (bottleneckId: string): Promise<OptimizationRecord[]> => {
+      const res = await apiClient.get<OptimizationRecord[]>(
+        `/bottlenecks/${bottleneckId}/optimizations`
+      );
+      return res.data;
+    },
+    get: async (id: string): Promise<OptimizationRecord> => {
+      const res = await apiClient.get<OptimizationRecord>(`/optimizations/${id}`);
+      return res.data;
+    },
+    getConfig: async (): Promise<OptimizationConfig> => {
+      const res = await apiClient.get<OptimizationConfig>('/optimizations/config');
       return res.data;
     },
   },
