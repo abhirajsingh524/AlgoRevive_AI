@@ -62,9 +62,11 @@
       "args": [
         {
           "kind": "int",
-          "size_factor": 1.0,
+          "size_factor": 0.2,
           "fixed": null,
-          "options": {}
+          "options": {
+            "max": 24
+          }
         }
       ]
     },
