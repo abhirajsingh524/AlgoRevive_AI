@@ -19,3 +19,23 @@ def publish(job_id: str, payload: Dict[str, Any]) -> None:
         r.publish(channel, message)
     except Exception as e:
         logger.warning(f"Failed to publish progress to Redis channel {channel}: {e}")
+
+
+def publish_progress(
+    job_id: str,
+    stage: str,
+    progress: int,
+    status: str = "running",
+    error: str | None = None,
+) -> None:
+    """Convenience helper to publish structured progress updates."""
+    payload: Dict[str, Any] = {
+        "job_id": job_id,
+        "stage": stage,
+        "progress": progress,
+        "status": status,
+    }
+    if error is not None:
+        payload["error"] = error
+    publish(job_id, payload)
+

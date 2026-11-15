@@ -1,12 +1,15 @@
-from typing import List, Optional
+import json
+from typing import Any, List, Optional
 from fastapi import APIRouter, Depends, File as FastAPIFile, Form, UploadFile, status
 from sqlalchemy.orm import Session
 from app.core.deps import get_current_user, get_database, get_storage
 from app.core.errors import AppException
 from app.models.file import File
+from app.models.function import Function
 from app.models.project import Project
 from app.models.repository import Repository
 from app.models.user import User
+from app.schemas.function import FunctionResponse
 from app.schemas.repository import FileContentResponse, FileResponse, RepositoryResponse
 from app.services.repository_service import ingest_repository
 from app.services.storage import StorageService
@@ -131,3 +134,69 @@ def get_file_content(
         language=file_record.language,
         content=content_str,
     )
+
+
+@router.get("/repositories/{repository_id}/functions", response_model=List[FunctionResponse])
+def list_repository_functions(
+    repository_id: str,
+    file_id: Optional[str] = None,
+    severity: Optional[str] = None,
+    min_rank: Optional[int] = None,
+    pattern: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_database),
+) -> List[Function]:
+    get_owned_repository(repository_id, current_user.id, db)
+    query = db.query(Function).filter(Function.repository_id == repository_id)
+
+    if file_id:
+        query = query.filter(Function.file_id == file_id)
+    if severity:
+        query = query.filter(Function.severity == severity.upper())
+    if min_rank is not None:
+        query = query.filter(Function.complexity_rank >= min_rank)
+
+    # Sort by complexity_rank desc, then name asc
+    functions = query.order_by(Function.complexity_rank.desc(), Function.name.asc()).all()
+
+    if pattern:
+        p_upper = pattern.upper()
+        functions = [
+            f
+            for f in functions
+            if f.patterns
+            and any(
+                p.get("pattern_id", "").upper() == p_upper
+                for p in f.patterns
+                if isinstance(p, dict)
+            )
+        ]
+
+    return functions
+
+
+@router.get("/repositories/{repository_id}/call-graph")
+def get_repository_call_graph(
+    repository_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_database),
+    storage: StorageService = Depends(get_storage),
+) -> Any:
+    get_owned_repository(repository_id, current_user.id, db)
+    storage_key = f"repos/{repository_id}/call_graph.json"
+    if not storage.exists(storage_key):
+        raise AppException(
+            status_code=404,
+            detail="Call graph not found. Run analysis first.",
+            code="NOT_FOUND",
+        )
+    data = storage.get_file(storage_key)
+    try:
+        return json.loads(data.decode("utf-8"))
+    except Exception:
+        raise AppException(
+            status_code=500,
+            detail="Failed to load call graph data",
+            code="INTERNAL_SERVER_ERROR",
+        )
+
