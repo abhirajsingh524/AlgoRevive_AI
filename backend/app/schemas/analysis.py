@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict
 
 class AnalysisRunCreate(BaseModel):
     config: Optional[Dict[str, Any]] = None
+    workload_spec: Optional[Dict[str, Any]] = None
 
 
 class AnalysisRunResponse(BaseModel):

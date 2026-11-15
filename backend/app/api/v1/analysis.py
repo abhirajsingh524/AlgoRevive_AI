@@ -1,5 +1,6 @@
+import json
 import socket
-from typing import List
+from typing import Any, Dict, List
 from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
@@ -13,6 +14,7 @@ from app.models.project import Project
 from app.models.repository import Repository
 from app.models.user import User
 from app.schemas.analysis import AnalysisRunCreate, AnalysisRunResponse
+from app.services.storage import get_storage_service
 from app.workers.tasks import run_analysis
 
 logger = get_logger("analysis_api")
@@ -70,6 +72,7 @@ def create_analysis_run(
         stage="queued",
         progress=0,
         config=payload.config or {},
+        workload_spec=payload.workload_spec,
     )
     db.add(run)
     db.commit()
@@ -122,3 +125,49 @@ def get_analysis_run(
             code="NOT_FOUND",
         )
     return run
+
+
+@router.get(
+    "/analysis-runs/{run_id}/profile",
+    response_model=Dict[str, Any],
+)
+def get_analysis_profile(
+    run_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_database),
+) -> Dict[str, Any]:
+    """Retrieve runtime profiling result JSON for an owned analysis run."""
+    run = (
+        db.query(AnalysisRun)
+        .join(Repository, AnalysisRun.repository_id == Repository.id)
+        .join(Project, Repository.project_id == Project.id)
+        .filter(AnalysisRun.id == run_id, Project.owner_id == current_user.id)
+        .first()
+    )
+    if not run:
+        raise AppException(
+            status_code=404,
+            detail="Analysis run not found",
+            code="NOT_FOUND",
+        )
+
+    storage = get_storage_service()
+    profile_key = f"runs/{run_id}/profile.json"
+
+    if not storage.exists(profile_key):
+        raise AppException(
+            status_code=404,
+            detail="Profile not found for this analysis run",
+            code="NOT_FOUND",
+        )
+
+    try:
+        raw_bytes = storage.get_file(profile_key)
+        return json.loads(raw_bytes.decode("utf-8"))
+    except Exception as e:
+        logger.error(f"Failed to read profile from storage {profile_key}: {e}")
+        raise AppException(
+            status_code=500,
+            detail="Failed to read profile data",
+            code="STORAGE_ERROR",
+        )

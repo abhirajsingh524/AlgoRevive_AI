@@ -9,6 +9,8 @@ Currently registered: static, structure.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
+import json
 from typing import Any, Callable, Dict, List, Optional
 import uuid
 
@@ -17,8 +19,10 @@ from sqlalchemy.orm import Session
 from app.core.errors import AppException
 from app.core.logging import get_logger
 from app.engines.complexity import ComplexityEstimator
+from app.engines.profiler import ProfilerEngine, collect_environment_metadata
 from app.engines.static_analyzer import PatternDetector, StaticAnalyzer
 from app.engines.structure import CallGraphBuilder, save_call_graph
+from app.engines.workload import WorkloadSpec
 from app.models.analysis_run import AnalysisRun
 from app.models.file import File
 from app.models.function import Function
@@ -213,14 +217,139 @@ def stage_structure(ctx: AnalysisContext) -> None:
 
     save_call_graph(ctx.storage, graph_res)
 
-    ctx.run.progress = 90
+    ctx.run.progress = 50
     ctx.db.commit()
-    publish_progress(ctx.run.id, stage="structure", progress=90, status="running")
+    publish_progress(ctx.run.id, stage="structure", progress=50, status="running")
 
 
-# Register Phase 2 stages
+def stage_profile(ctx: AnalysisContext) -> None:
+    """Execute dynamic profiling inside sandbox container under specified workload."""
+    logger.info(f"Running profile stage for repo {ctx.repository.id} run {ctx.run.id}")
+    ctx.run.stage = "profile"
+    ctx.run.progress = 55
+    ctx.db.commit()
+    publish_progress(
+        ctx.run.id,
+        stage="profile",
+        progress=55,
+        status="running",
+        message="Preparing runtime profiling",
+    )
+
+    # 1. Locate workload spec: from run.workload_spec, config, or repo root algorevive.workload.json
+    workload_data: Optional[Dict[str, Any]] = None
+    if ctx.run.workload_spec:
+        workload_data = ctx.run.workload_spec
+    elif ctx.run.config and isinstance(ctx.run.config, dict) and ctx.run.config.get("workload_spec"):
+        workload_data = ctx.run.config.get("workload_spec")
+    else:
+        repo_files = ctx.db.query(File).filter(File.repository_id == ctx.repository.id).all()
+        for f in repo_files:
+            clean = f.path.lstrip("/\\")
+            if clean in ("algorevive.workload.json", "workload.json"):
+                try:
+                    raw_bytes = ctx.storage.get_file(f.storage_key)
+                    workload_data = json.loads(raw_bytes.decode("utf-8"))
+                    break
+                except Exception as e:
+                    logger.warning(f"Failed to read workload spec from {f.path}: {e}")
+
+    # 2. If no workload spec found, skip with clear warning (static-only mode)
+    if not workload_data:
+        warning_msg = "No workload spec found (static-only mode); skipping profiling stage"
+        logger.warning(warning_msg)
+        ctx.run.progress = 80
+        ctx.db.commit()
+        publish_progress(
+            ctx.run.id,
+            stage="profile",
+            progress=80,
+            status="running",
+            message=warning_msg,
+        )
+        return
+
+    # 3. Validate workload spec with Pydantic
+    try:
+        spec = WorkloadSpec.model_validate(workload_data)
+    except Exception as val_err:
+        warning_msg = f"Invalid workload spec: {val_err}; skipping profiling stage"
+        logger.warning(warning_msg)
+        ctx.run.progress = 80
+        ctx.db.commit()
+        publish_progress(
+            ctx.run.id,
+            stage="profile",
+            progress=80,
+            status="running",
+            message=warning_msg,
+        )
+        return
+
+    # 4. Save validated spec and hash on the run
+    spec_dict = spec.model_dump()
+    ctx.run.workload_spec = spec_dict
+    ctx.run.workload_hash = hashlib.sha256(
+        json.dumps(spec_dict, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+
+    # 5. Record environment metadata (Contract G10)
+    env_meta = collect_environment_metadata(seed=spec.seed)
+    ctx.run.environment = env_meta
+    ctx.db.commit()
+
+    # 6. Fetch all repository files into memory dict
+    repo_files = ctx.db.query(File).filter(File.repository_id == ctx.repository.id).all()
+    files_dict: Dict[str, bytes] = {}
+    for f in repo_files:
+        try:
+            files_dict[f.path] = ctx.storage.get_file(f.storage_key)
+        except Exception as e:
+            logger.warning(f"Could not load file {f.path} for sandbox: {e}")
+
+    publish_progress(
+        ctx.run.id,
+        stage="profile",
+        progress=60,
+        status="running",
+        message="Running profiling inside sandbox container...",
+    )
+
+    # 7. Run profiler engine
+    profiler = ProfilerEngine()
+    try:
+        profile_result = profiler.profile(run_id=ctx.run.id, files=files_dict, spec=spec)
+    except Exception as prof_err:
+        logger.error(f"Profiling failed: {prof_err}")
+        publish_progress(
+            ctx.run.id,
+            stage="profile",
+            progress=80,
+            status="running",
+            message=f"Profiling warning: {prof_err}",
+        )
+        return
+
+    # 8. Save profile to storage: runs/{run_id}/profile.json (Contract I)
+    storage_key = f"runs/{ctx.run.id}/profile.json"
+    profile_bytes = profile_result.model_dump_json(indent=2).encode("utf-8")
+    ctx.storage.put_file(storage_key, profile_bytes)
+
+    ctx.run.progress = 80
+    ctx.db.commit()
+    publish_progress(
+        ctx.run.id,
+        stage="profile",
+        progress=80,
+        status="running",
+        message="Runtime profiling completed successfully",
+    )
+
+
+# Register pipeline stages
 registry.register("static", stage_static)
 registry.register("structure", stage_structure)
+registry.register("profile", stage_profile)
 
 
 def execute_analysis(db: Session, storage: StorageService, run_id: str) -> AnalysisRun:
