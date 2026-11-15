@@ -15,6 +15,7 @@ from typing import Any, Callable, Dict, List, Optional
 import uuid
 
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.errors import AppException
 from app.core.logging import get_logger
@@ -23,8 +24,9 @@ from app.engines.complexity import ComplexityEstimator
 from app.engines.profiler import ProfilerEngine, collect_environment_metadata
 from app.engines.static_analyzer import PatternDetector, StaticAnalyzer
 from app.engines.structure import CallGraphBuilder, save_call_graph
-from app.engines.workload import WorkloadSpec
+from app.engines.workload import WorkloadSpec, build_workload_profile
 from app.models.analysis_run import AnalysisRun
+from app.models.bottleneck import Bottleneck
 from app.models.file import File
 from app.models.function import Function
 from app.models.repository import Repository
@@ -378,11 +380,52 @@ def stage_bottleneck(ctx: AnalysisContext) -> None:
     )
 
 
+def stage_workload(ctx: AnalysisContext) -> None:
+    """Characterize workload profiles for all identified bottlenecks."""
+    logger.info(f"Running workload stage for repo {ctx.repository.id} run {ctx.run.id}")
+    ctx.run.stage = "workload"
+    ctx.run.progress = 92
+    ctx.db.commit()
+    publish_progress(
+        ctx.run.id,
+        stage="workload",
+        progress=92,
+        status="running",
+        message="Deriving workload profiles for bottlenecks...",
+    )
+
+    bottlenecks = (
+        ctx.db.query(Bottleneck)
+        .filter(Bottleneck.analysis_run_id == ctx.run.id)
+        .all()
+    )
+
+    spec = ctx.run.workload_spec
+
+    for b in bottlenecks:
+        fn = ctx.db.query(Function).filter(Function.id == b.function_id).first()
+        workload_prof = build_workload_profile(spec=spec, bottleneck=b, function=fn)
+        evidence = dict(b.evidence or {})
+        evidence["workload"] = workload_prof.to_dict()
+        b.evidence = evidence
+        flag_modified(b, "evidence")
+
+    ctx.db.commit()
+    publish_progress(
+        ctx.run.id,
+        stage="workload",
+        progress=95,
+        status="running",
+        message=f"Characterized workload for {len(bottlenecks)} bottlenecks",
+    )
+
+
 # Register pipeline stages
 registry.register("static", stage_static)
 registry.register("structure", stage_structure)
 registry.register("profile", stage_profile)
 registry.register("bottleneck", stage_bottleneck)
+registry.register("workload", stage_workload)
 
 
 def execute_analysis(db: Session, storage: StorageService, run_id: str) -> AnalysisRun:
