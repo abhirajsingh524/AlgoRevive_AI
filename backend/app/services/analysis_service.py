@@ -24,7 +24,11 @@ from app.engines.complexity import ComplexityEstimator
 from app.engines.profiler import ProfilerEngine, collect_environment_metadata
 from app.engines.static_analyzer import PatternDetector, StaticAnalyzer
 from app.engines.structure import CallGraphBuilder, save_call_graph
-from app.engines.workload import WorkloadSpec, build_workload_profile
+from app.engines.workload import (
+    WorkloadSpec,
+    build_feature_vector,
+    build_workload_profile,
+)
 from app.models.analysis_run import AnalysisRun
 from app.models.bottleneck import Bottleneck
 from app.models.file import File
@@ -407,6 +411,10 @@ def stage_workload(ctx: AnalysisContext) -> None:
         workload_prof = build_workload_profile(spec=spec, bottleneck=b, function=fn)
         evidence = dict(b.evidence or {})
         evidence["workload"] = workload_prof.to_dict()
+        b.evidence = evidence
+        fv = build_feature_vector(b, function=fn)
+        evidence["features"] = fv.model_dump()
+        evidence["features_array"] = fv.to_array()
         b.evidence = evidence
         flag_modified(b, "evidence")
 
