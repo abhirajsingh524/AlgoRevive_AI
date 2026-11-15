@@ -23,6 +23,7 @@ from app.engines.bottleneck import BottleneckDetector
 from app.engines.complexity import ComplexityEstimator
 from app.engines.explain import build_why_flagged
 from app.engines.profiler import ProfilerEngine, collect_environment_metadata
+from app.engines.recommender import RecommendationEngine
 from app.engines.static_analyzer import PatternDetector, StaticAnalyzer
 from app.engines.structure import CallGraphBuilder, save_call_graph
 from app.engines.workload import (
@@ -34,6 +35,7 @@ from app.models.analysis_run import AnalysisRun
 from app.models.bottleneck import Bottleneck
 from app.models.file import File
 from app.models.function import Function
+from app.models.recommendation import Recommendation
 from app.models.repository import Repository
 from app.services.progress import publish_progress
 from app.services.storage import StorageService
@@ -432,12 +434,97 @@ def stage_workload(ctx: AnalysisContext) -> None:
     )
 
 
+def stage_recommend(ctx: AnalysisContext) -> None:
+    """Execute recommendation engine for detected bottlenecks.
+
+    Generates algorithmic & data structure recommendations, per-feature importances,
+    and plain-English explanations. Persists results to recommendations table.
+    """
+    logger.info(f"Running recommend stage for repo {ctx.repository.id} run {ctx.run.id}")
+    ctx.run.stage = "recommend"
+    ctx.run.progress = 96
+    ctx.db.commit()
+    publish_progress(
+        ctx.run.id,
+        stage="recommend",
+        progress=96,
+        status="running",
+        message="Generating algorithm & data structure recommendations...",
+    )
+
+    bottlenecks = (
+        ctx.db.query(Bottleneck)
+        .filter(Bottleneck.analysis_run_id == ctx.run.id)
+        .all()
+    )
+
+    for b in bottlenecks:
+        fn = ctx.db.query(Function).filter(Function.id == b.function_id).first()
+        evidence = dict(b.evidence or {})
+        fv = build_feature_vector(b, function=fn)
+
+        # Generate combined recommendation
+        comb_rec = RecommendationEngine.recommend(bottleneck=b, features=fv, function=fn)
+
+        # Upsert recommendation in recommendations table
+        rec_obj = ctx.db.query(Recommendation).filter(Recommendation.bottleneck_id == b.id).first()
+        if not rec_obj:
+            rec_obj = Recommendation(
+                id=str(uuid.uuid4()),
+                bottleneck_id=b.id,
+                current_algorithm=comb_rec.current_algorithm,
+                recommended_algorithm=comb_rec.recommended_algorithm,
+                alternatives=comb_rec.alternatives,
+                expected_complexity=comb_rec.expected_complexity,
+                confidence=comb_rec.confidence,
+                reason=comb_rec.reason,
+                feature_importance=comb_rec.feature_importance,
+                source=comb_rec.source,
+            )
+            ctx.db.add(rec_obj)
+        else:
+            rec_obj.current_algorithm = comb_rec.current_algorithm
+            rec_obj.recommended_algorithm = comb_rec.recommended_algorithm
+            rec_obj.alternatives = comb_rec.alternatives
+            rec_obj.expected_complexity = comb_rec.expected_complexity
+            rec_obj.confidence = comb_rec.confidence
+            rec_obj.reason = comb_rec.reason
+            rec_obj.feature_importance = comb_rec.feature_importance
+            rec_obj.source = comb_rec.source
+
+        # Store in bottleneck evidence as well for frontend convenience
+        evidence["recommendation"] = {
+            "current_algorithm": comb_rec.current_algorithm,
+            "recommended_algorithm": comb_rec.recommended_algorithm,
+            "expected_complexity": comb_rec.expected_complexity,
+            "confidence": comb_rec.confidence,
+            "alternatives": comb_rec.alternatives,
+            "reason": comb_rec.reason,
+            "source": comb_rec.source,
+            "data_structure": comb_rec.data_structure.model_dump(),
+            "feature_importance": comb_rec.feature_importance,
+            "class_probabilities": comb_rec.class_probabilities,
+        }
+        b.evidence = evidence
+        flag_modified(b, "evidence")
+
+    ctx.db.commit()
+    publish_progress(
+        ctx.run.id,
+        stage="recommend",
+        progress=98,
+        status="running",
+        message=f"Generated recommendations for {len(bottlenecks)} bottlenecks",
+    )
+
+
 # Register pipeline stages
 registry.register("static", stage_static)
 registry.register("structure", stage_structure)
 registry.register("profile", stage_profile)
 registry.register("bottleneck", stage_bottleneck)
 registry.register("workload", stage_workload)
+registry.register("recommend", stage_recommend)
 
 
 def execute_analysis(db: Session, storage: StorageService, run_id: str) -> AnalysisRun:

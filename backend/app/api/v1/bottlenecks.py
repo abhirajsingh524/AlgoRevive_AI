@@ -11,9 +11,11 @@ from app.core.errors import AppException
 from app.models.analysis_run import AnalysisRun
 from app.models.bottleneck import Bottleneck
 from app.models.project import Project
+from app.models.recommendation import Recommendation
 from app.models.repository import Repository
 from app.models.user import User
 from app.schemas.bottleneck import BottleneckResponse
+from app.schemas.recommendation import RecommendationResponse
 
 router = APIRouter(tags=["bottlenecks"])
 
@@ -114,20 +116,25 @@ def get_bottleneck(
 
 @router.get(
     "/bottlenecks/{bottleneck_id}/recommendation",
+    response_model=RecommendationResponse,
 )
 def get_bottleneck_recommendation(
     bottleneck_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_database),
-):
-    """Retrieve recommendation for a bottleneck. Returns 404 NOT_READY until Phase 5."""
+) -> Recommendation:
+    """Retrieve algorithm and data structure recommendation for a bottleneck."""
     bottleneck = _verify_bottleneck_owner(bottleneck_id, current_user.id, db)
 
-    if not bottleneck.recommendation:
+    rec = bottleneck.recommendation
+    if not rec:
+        rec = db.query(Recommendation).filter(Recommendation.bottleneck_id == bottleneck.id).first()
+
+    if not rec:
         raise AppException(
             status_code=404,
             detail="Recommendation not ready",
             code="NOT_READY",
         )
 
-    return bottleneck.recommendation
+    return rec

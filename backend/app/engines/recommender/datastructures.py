@@ -18,7 +18,8 @@ import logging
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
-from app.engines.recommender.ml import predict_recommendation
+from app.engines.recommender.explain import explain_prediction
+from app.engines.recommender.ml import load_model_and_metadata, predict_recommendation
 from app.engines.recommender.rules import CODE_TO_PATTERN
 from app.engines.workload.features import FeatureVector, build_feature_vector
 from app.models.bottleneck import Bottleneck
@@ -194,8 +195,17 @@ class RecommendationEngine:
             bottleneck=bottleneck, features=features, function=function
         )
 
-        # 3. Combine explanations
-        combined_reason = f"{algo_rec.reason} Recommended structure: {ds_rec.recommended_structure} ({ds_rec.workload_reason})"
+        # 3. Per-prediction feature importance & plain-English explanation
+        artifact, metadata = load_model_and_metadata()
+        ranked_importances, reason_sentence = explain_prediction(
+            features=features,
+            recommended_class=algo_rec.recommended_algorithm,
+            model_artifact=artifact,
+            metadata=metadata,
+        )
+
+        # 4. Combine explanations
+        combined_reason = f"{reason_sentence} Recommended structure: {ds_rec.recommended_structure} ({ds_rec.workload_reason})"
 
         return CombinedRecommendation(
             current_algorithm=algo_rec.current_algorithm,
@@ -206,5 +216,6 @@ class RecommendationEngine:
             reason=combined_reason,
             source=algo_rec.source,
             data_structure=ds_rec,
+            feature_importance=ranked_importances,
             class_probabilities=algo_rec.class_probabilities,
         )
