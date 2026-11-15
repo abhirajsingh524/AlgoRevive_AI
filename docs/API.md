@@ -1,4 +1,4 @@
-# AlgoRevive AI - API Reference (Phase 5: ML Recommendation Engine)
+# AlgoRevive AI - API Reference (Phase 6: Candidate Optimization Generation)
 
 All endpoints are prefixed with `/api/v1`. Authentication uses standard HTTP Bearer tokens with JWT: `Authorization: Bearer <access_token>`.
 
@@ -779,3 +779,91 @@ Retrieves algorithmic and data structure recommendations, per-feature importance
 - **Errors:**
   - `404 Not Found` (`NOT_FOUND`): Bottleneck not found or user is not the owner.
   - `404 Not Found` (`NOT_READY`): Recommendation not yet ready (analysis run currently in progress).
+
+---
+
+## 9. Candidate Optimization Generation
+
+### POST `/api/v1/bottlenecks/{bottleneck_id}/optimizations`
+Initiates generation of an optimization candidate for a bottleneck using either deterministic LibCST templates (Mode A) or an OpenAI-compatible LLM provider (Mode B). Applies strict shared guards before persisting candidate artifacts.
+
+- **Auth Required:** Yes (Owner-scoped)
+- **Query Parameters:**
+  - `sync` (optional boolean, default `false`): If `true`, forces synchronous generation inline within the HTTP request cycle; otherwise dispatches to background worker.
+- **Request Body:**
+```json
+{
+  "mode": "template",
+  "template_id": "T1_SET_MEMBERSHIP"
+}
+```
+*Note: If `template_id` is omitted, the template is automatically mapped from the bottleneck's recommendation.*
+- **Response 201 Created:**
+```json
+{
+  "id": "e4a7dc92-3bc1-4475-b66b-80fb785a2283",
+  "recommendation_id": "180373e0-f0c3-42bf-9c70-ea5f2cbbd377",
+  "mode": "template",
+  "template_id": "T1_SET_MEMBERSHIP",
+  "candidate_code": "def slow_membership(items, ids):\n    ids_set = set(ids)\n    res = []\n    for item in items:\n        if item in ids_set:\n            res.append(item)\n    return res\n",
+  "patch": "--- original.py\n+++ candidate.py\n@@ -6,6 +6,7 @@\n def slow_membership(items, ids):\n+    ids_set = set(ids)\n     res = []\n",
+  "status": "generated",
+  "error": null,
+  "decision_reason": {
+    "rationale": "Convert linear scan list lookup to O(1) average hash set membership.",
+    "safety_notes": [
+      "Target elements in 'ids' must implement __hash__ and __eq__.",
+      "The set is instantiated once prior to loop execution."
+    ],
+    "changed_lines": [7]
+  },
+  "created_at": "2026-11-16T02:00:00Z",
+  "updated_at": "2026-11-16T02:00:01Z"
+}
+```
+- **Errors:**
+  - `400 Bad Request` (`INVALID_MODE`): Unsupported mode specified (must be `template` or `llm`).
+  - `404 Not Found` (`NOT_FOUND`): Bottleneck not found or not owned by user.
+  - `404 Not Found` (`NOT_READY`): Recommendation not yet ready for this bottleneck.
+
+---
+
+### GET `/api/v1/bottlenecks/{bottleneck_id}/optimizations`
+Lists all candidate optimization records generated for the specified bottleneck.
+
+- **Auth Required:** Yes (Owner-scoped)
+- **Response 200 OK:** Array of `OptimizationResponse` objects.
+- **Errors:**
+  - `404 Not Found` (`NOT_FOUND`): Bottleneck not found or not owned by user.
+
+---
+
+### GET `/api/v1/optimizations/{optimization_id}`
+Retrieves a single optimization record, including candidate source, unified diff patch, rationale, safety notes, and execution status.
+
+- **Auth Required:** Yes (Owner-scoped)
+- **Response 200 OK:** `OptimizationResponse` object.
+- **Errors:**
+  - `404 Not Found` (`NOT_FOUND`): Optimization not found or not owned by user.
+
+---
+
+### GET `/api/v1/optimizations/config`
+Retrieves generator capabilities, active LLM provider availability, and list of supported deterministic templates.
+
+- **Auth Required:** Yes
+- **Response 200 OK:**
+```json
+{
+  "llm_provider": "none",
+  "llm_enabled": false,
+  "templates": [
+    "T1_SET_MEMBERSHIP",
+    "T2_DICT_INDEX_JOIN",
+    "T3_MIN_MAX_HEAP",
+    "T4_JOIN_STRINGS",
+    "T5_LRU_CACHE",
+    "T6_DEQUE_POPLEFT"
+  ]
+}
+```

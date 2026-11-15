@@ -1,6 +1,95 @@
 # AlgoRevive AI - Progress Log
 
-## Current Status: Phase 5 (ML Recommendation Engine) Complete
+## Current Status: Phase 6 (Optimization Generation) Complete
+
+---
+
+### Phase 6: Candidate Optimization Generation
+- **Status:** Completed
+- **Goal:** For a chosen bottleneck, generate a safe, minimal candidate implementation - from deterministic templates (Mode A, always available) or from a configurable LLM (Mode B, off by default) - and present it as a diff. Nothing is validated or benchmarked yet.
+
+---
+
+### Phase 6 Done Items:
+
+1. **Template Base Class & Candidate Guards (`backend/app/engines/optimizer/templates/base.py`):**
+   - Defined `Template` ABC with `applies(function_node, pattern_match) -> bool` and `apply(source, function_range) -> Optional[TemplateResult]`.
+   - Used LibCST (`libcst`) to parse and transform source trees, preserving original formatting, docstrings, and inline comments.
+   - Enforced strict shared candidate guards (`run_shared_guards`):
+     - Compilation guard: candidate must pass standard `compile()` and re-parse cleanly in both `ast` and `libcst`.
+     - Signature preservation guard: identical function name, arguments count, argument names, default values, and return type annotations.
+     - Target line range containment guard: changes strictly isolated to target function's line range; AST comparison of all remaining source lines must be structurally identical.
+     - Strict import allowlist: only `functools`, `collections`, `heapq`, `bisect`, `itertools`, `math`, and `operator` permitted.
+   - Generated standard unified diff patches using Python `difflib`.
+
+2. **Six Deterministic Contract G3 Templates (`backend/app/engines/optimizer/templates/`):**
+   - `T1_SET_MEMBERSHIP` (`t1_set_membership.py`): Detects read-only list identifiers queried with `in` or `not in` inside loops. Constructs a pre-computed hash set before loop execution. Documents in `safety_notes` that elements must implement `__hash__` and `__eq__`.
+   - `T2_DICT_INDEX_JOIN` (`t2_dict_index_join.py`): Detects exact $O(N \times M)$ nested equality loops `for x in A: for y in B: if key(x) == key(y): ...`. Pre-indexes collection $B$ once into a `collections.defaultdict(list)` and iterates over matches per $x$, preserving original match order.
+   - `T3_MIN_MAX_HEAP` (`t3_min_max_heap.py`): Rewrites `sorted(X)[0]` or `sorted(X, key=f)[0]` to `min(X)` / `min(X, key=f)`; `sorted(X, reverse=True)[0]` to `max(X)`; and `sorted(X)[:k]` to `heapq.nsmallest(k, X)`.
+   - `T4_JOIN_STRINGS` (`t4_join_strings.py`): Identifies string accumulators initialized with string literals and repeatedly concatenated with `+=` or `s = s + x` inside loops. Collects chunks into a temporary list and joins them with `"".join(...)` once after loop termination.
+   - `T5_LRU_CACHE` (`t5_lru_cache.py`): Detects pure recursive functions with $\ge 2$ direct self-calls, no global or nonlocal mutations, no I/O or random calls, and no mutable default arguments. Adds `@functools.lru_cache(maxsize=None)` and decorator imports.
+   - `T6_DEQUE_POPLEFT` (`t6_deque_popleft.py`): Detects local FIFO lists (instantiated within the function body, not function parameters) consumed with `pop(0)` inside a loop. Rewrites constructor to `collections.deque(...)` and replaces `pop(0)` with `popleft()`.
+
+3. **Configurable LLM Provider with Security Guards (`backend/app/engines/optimizer/llm/`):**
+   - Defined `LLMProvider` interface and factory `get_llm_provider()` based on `settings.LLM_PROVIDER`.
+   - `NullProvider`: Default provider when `LLM_PROVIDER=none`. Raises clean `LLMDisabledError` explaining that LLM generation is disabled.
+   - `OpenAICompatibleProvider`: Communicates with any OpenAI-compatible API (OpenAI, Ollama, vLLM) via `httpx`. Sends only target function source, evidence metrics, and recommendation context.
+   - Strict markdown and codeblock output parser extracting exactly one function definition.
+   - Enforced shared guards PLUS strict security filter rejecting any candidate containing `exec`, `eval`, `compile`, `open`, `__import__`, `os`, `sys`, `subprocess`, `socket`, `ctypes`, or unauthorized imports.
+   - Enforced 30-second request timeout and retry limit of 1.
+
+4. **Optimization Pipeline Service & Endpoints (`backend/app/services/optimization_service.py`, `backend/app/api/v1/optimizations.py`):**
+   - Implemented `OptimizationStageRegistry` conforming to Contract G2, registering the `generate` stage.
+   - Celery background task `run_optimization(optimization_id)` with progress publishing to `progress:{optimization_id}`.
+   - Safe execution: handles precondition failures and guard rejections cleanly by setting `status="failed"` with a readable error message (never crashes).
+   - Saved artifacts to object storage following Contract Section I keys:
+     - `optimizations/{optimization_id}/candidate.py`
+     - `optimizations/{optimization_id}/patch.diff`
+   - API endpoints with Contract H4 owner-scoped security:
+     - `POST /api/v1/bottlenecks/{id}/optimizations` (supports `sync=true` query parameter for instant feedback)
+     - `GET /api/v1/bottlenecks/{id}/optimizations`
+     - `GET /api/v1/optimizations/{id}`
+     - `GET /api/v1/optimizations/config`
+
+5. **Frontend Optimization Tab with Diff Viewer (`frontend/src/components/OptimizationPanel.tsx`, `BottleneckDetailDrawer.tsx`):**
+   - Added **Optimization** tab to the bottleneck drawer alongside Recommendations, Why Flagged?, Code, Workload, and Call Graph.
+   - Generation mode toggle: Deterministic Template (Mode A) vs. LLM Synthesis (Mode B). Mode B is disabled with an explanatory banner when `LLM_PROVIDER=none`.
+   - Template selection dropdown with default selected from recommendation.
+   - **Generate Candidate** button with live progress tracking via WebSocket (`/api/v1/ws/jobs/{id}`) and step status badges.
+   - Monaco `DiffEditor` displaying original source side-by-side with generated candidate source.
+   - Expandable raw unified diff patch viewer.
+   - Algorithmic rationale card, safety notes/preconditions alert, changed lines indicators, and clean warning banner when no safe candidate can be generated.
+
+6. **Comprehensive Test Suite (`backend/tests/test_optimizer.py`):**
+   - 49 automated tests covering:
+     - Golden before/after transformations for all 6 templates (T1-T6).
+     - At least 3 negative precondition failure cases per template returning `None`.
+     - Compile guard, signature preservation guard, and single-function line range AST guard.
+     - Import allowlist enforcement and unauthorized import rejection.
+     - LLM NullProvider and OpenAICompatibleProvider mocked tests (good output, malformed markdown, multiple functions, forbidden calls, timeout/retry).
+     - Full demo repository coverage: all 6 slow functions produce valid candidate diffs passing all guards; control function `efficient_total` produces `None` and an informative message.
+     - API endpoints and owner isolation (Contract H4).
+
+---
+
+### How to Verify Phase 6:
+```bash
+# 1. Run all backend optimizer tests
+pytest backend/tests/test_optimizer.py -v
+
+# 2. Run backend linter
+ruff check backend
+
+# 3. Run frontend test suite & build
+cd frontend
+npm test
+npm run build
+```
+
+### Limitations & Boundaries:
+- Candidate code is NOT executed or run inside sandboxes during Phase 6 (isolated execution and correctness testing belong to Phase 7).
+- No patches are auto-applied or merged into stored repositories (human review is required per Contract G9).
+- Only the 6 Contract G3 templates are implemented.
 
 ---
 
