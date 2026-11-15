@@ -1,5 +1,15 @@
 import axios from 'axios';
-import { AuthResponse, FileContent, FileRecord, Project, Repository, User } from '../types';
+import {
+  AnalysisRun,
+  AuthResponse,
+  CallGraphData,
+  FileContent,
+  FileRecord,
+  FunctionRecord,
+  Project,
+  Repository,
+  User,
+} from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -32,7 +42,6 @@ apiClient.interceptors.response.use(
   }
 );
 
-// Auth API
 export const api = {
   auth: {
     register: async (data: { email: string; password: string; full_name?: string }): Promise<User> => {
@@ -92,6 +101,35 @@ export const api = {
     },
     getFileContent: async (repoId: string, fileId: string): Promise<FileContent> => {
       const res = await apiClient.get<FileContent>(`/repositories/${repoId}/files/${fileId}/content`);
+      return res.data;
+    },
+    listFunctions: async (
+      repoId: string,
+      params?: { file_id?: string; severity?: string; min_rank?: number; pattern?: string }
+    ): Promise<FunctionRecord[]> => {
+      const res = await apiClient.get<FunctionRecord[]>(`/repositories/${repoId}/functions`, {
+        params,
+      });
+      return res.data;
+    },
+    getCallGraph: async (repoId: string): Promise<CallGraphData> => {
+      const res = await apiClient.get<CallGraphData>(`/repositories/${repoId}/call-graph`);
+      return res.data;
+    },
+  },
+  analysis: {
+    createRun: async (repoId: string, config?: Record<string, any>): Promise<AnalysisRun> => {
+      const res = await apiClient.post<AnalysisRun>(`/repositories/${repoId}/analysis-runs`, {
+        config: config || {},
+      });
+      return res.data;
+    },
+    listRuns: async (repoId: string): Promise<AnalysisRun[]> => {
+      const res = await apiClient.get<AnalysisRun[]>(`/repositories/${repoId}/analysis-runs`);
+      return res.data;
+    },
+    getRun: async (runId: string): Promise<AnalysisRun> => {
+      const res = await apiClient.get<AnalysisRun>(`/analysis-runs/${runId}`);
       return res.data;
     },
   },

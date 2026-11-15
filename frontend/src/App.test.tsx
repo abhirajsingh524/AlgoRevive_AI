@@ -5,6 +5,7 @@ import { LoginPage } from './pages/LoginPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AuthProvider } from './context/AuthContext';
 import { FileTree } from './components/FileTree';
+import { FunctionsTable } from './components/FunctionsTable';
 import { FileRecord } from './types';
 
 describe('Frontend Shell & Auth Flow', () => {
@@ -107,5 +108,53 @@ describe('Frontend Shell & Auth Flow', () => {
     // Click on second file
     fireEvent.click(screen.getByText('app/utils/math_ops.py'));
     expect(onSelectMock).toHaveBeenCalledWith('f2-uuid');
+  });
+
+  it('renders functions table with complexity badge, patterns and handles row selection', () => {
+    const sampleFunctions = [
+      {
+        id: 'fn-1',
+        file_id: 'f1-uuid',
+        repository_id: 'r1-uuid',
+        qualified_name: 'demo.operations.slow_membership',
+        name: 'slow_membership',
+        lineno: 10,
+        end_lineno: 20,
+        params: [],
+        complexity_class: 'O(n^2)',
+        complexity_rank: 4,
+        loop_depth: 1,
+        has_recursion: false,
+        patterns: [
+          {
+            pattern_id: 'LINEAR_MEMBERSHIP_IN_LOOP',
+            line_number: 14,
+            matched_snippet: 'u["id"] in ids',
+          },
+        ],
+        severity: 'HIGH',
+        metrics: { loc: 10 },
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+    ];
+
+    const onSelectFnMock = vi.fn();
+
+    render(
+      <FunctionsTable
+        functions={sampleFunctions}
+        onSelectFunction={onSelectFnMock}
+      />
+    );
+
+    expect(screen.getByText('slow_membership')).toBeInTheDocument();
+    expect(screen.getByText('demo.operations.slow_membership')).toBeInTheDocument();
+    expect(screen.getByText('O(n^2)')).toBeInTheDocument();
+    expect(screen.getByText('HIGH')).toBeInTheDocument();
+    expect(screen.getByText('LINEAR_MEMBERSHIP_IN_LOOP')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('slow_membership'));
+    expect(onSelectFnMock).toHaveBeenCalledWith(sampleFunctions[0]);
   });
 });
