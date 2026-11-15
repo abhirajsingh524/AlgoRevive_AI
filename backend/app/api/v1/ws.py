@@ -7,13 +7,14 @@ import json
 import time
 from typing import Optional
 
-from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect, status
 import redis.asyncio as aioredis
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.deps import get_database
 from app.core.logging import get_logger
 from app.core.security import decode_access_token
-from app.db.session import SessionLocal
 from app.models.analysis_run import AnalysisRun
 from app.models.project import Project
 from app.models.repository import Repository
@@ -24,44 +25,42 @@ logger = get_logger("ws")
 router = APIRouter(tags=["websocket"])
 
 
-def _verify_job_ownership(user_id: str, job_id: str) -> bool:
+def _verify_job_ownership(user_id: str, job_id: str, db: Session) -> bool:
     """Verify that user_id owns the project/repository associated with job_id."""
-    with SessionLocal() as db:
-        user = db.query(User).filter(User.id == user_id).first()
-        if not user or not user.is_active:
-            return False
-
-        if user.role == "admin":
-            return True
-
-        # Check AnalysisRun ownership
-        run = db.query(AnalysisRun).filter(AnalysisRun.id == job_id).first()
-        if run:
-            if run.requested_by == user.id:
-                return True
-            # Also check if project owner matches
-            repo = (
-                db.query(Repository)
-                .join(Project, Repository.project_id == Project.id)
-                .filter(Repository.id == run.repository_id, Project.owner_id == user.id)
-                .first()
-            )
-            return repo is not None
-
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user or not user.is_active:
         return False
 
+    if user.role == "admin":
+        return True
 
-def _get_latest_job_state(job_id: str) -> dict:
+    # Check AnalysisRun ownership
+    run = db.query(AnalysisRun).filter(AnalysisRun.id == job_id).first()
+    if run:
+        if run.requested_by == user.id:
+            return True
+        # Also check if project owner matches
+        repo = (
+            db.query(Repository)
+            .join(Project, Repository.project_id == Project.id)
+            .filter(Repository.id == run.repository_id, Project.owner_id == user.id)
+            .first()
+        )
+        return repo is not None
+
+    return False
+
+
+def _get_latest_job_state(job_id: str, db: Session) -> dict:
     """Retrieve the latest known job state from DB to guarantee late subscribers are never blank."""
-    with SessionLocal() as db:
-        run = db.query(AnalysisRun).filter(AnalysisRun.id == job_id).first()
-        if run:
-            return {
-                "stage": run.stage,
-                "progress": run.progress,
-                "message": run.error or f"Stage: {run.stage} ({run.progress}%)",
-                "status": run.status,
-            }
+    run = db.query(AnalysisRun).filter(AnalysisRun.id == job_id).first()
+    if run:
+        return {
+            "stage": run.stage,
+            "progress": run.progress,
+            "message": run.error or f"Stage: {run.stage} ({run.progress}%)",
+            "status": run.status,
+        }
     return {
         "stage": "queued",
         "progress": 0,
@@ -75,6 +74,7 @@ async def websocket_job_progress(
     websocket: WebSocket,
     job_id: str,
     token: Optional[str] = Query(None),
+    db: Session = Depends(get_database),
 ):
     """Authenticated WebSocket endpoint streaming live progress for an analysis run.
     
@@ -87,20 +87,25 @@ async def websocket_job_progress(
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
-    token_data = decode_access_token(token)
-    if not token_data or not token_data.user_id:
+    try:
+        token_data = decode_access_token(token)
+    except Exception:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
-    user_id = token_data.user_id
-    if not _verify_job_ownership(user_id, job_id):
+    user_id = token_data.get("sub") if isinstance(token_data, dict) else getattr(token_data, "user_id", None)
+    if not user_id:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    if not _verify_job_ownership(user_id, job_id, db):
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
     await websocket.accept()
 
     # Send latest known state first so late subscriber is never blank
-    initial_state = _get_latest_job_state(job_id)
+    initial_state = _get_latest_job_state(job_id, db)
     await websocket.send_json(initial_state)
 
     # If job is already completed or failed, keep socket alive briefly then finish

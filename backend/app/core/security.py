@@ -32,8 +32,11 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         return False
 
 
-def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:
-    to_encode = data.copy()
+def create_access_token(data: Dict[str, Any] | str, expires_delta: Optional[timedelta] = None) -> str:
+    if isinstance(data, str):
+        to_encode = {"sub": data}
+    else:
+        to_encode = data.copy()
     now = datetime.now(timezone.utc)
     if expires_delta:
         expire = now + expires_delta
