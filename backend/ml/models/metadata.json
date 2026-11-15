@@ -1,0 +1,104 @@
+{
+  "best_model": "RandomForestClassifier",
+  "feature_order": [
+    "input_size_log10",
+    "current_algorithm_code",
+    "current_complexity_rank",
+    "lookup_freq_level",
+    "insert_ratio",
+    "delete_ratio",
+    "read_write_ratio",
+    "data_distribution_code",
+    "memory_constraint_level",
+    "latency_requirement_level",
+    "call_count_log10",
+    "runtime_pct"
+  ],
+  "classes": [
+    "deque",
+    "hash_map_index",
+    "hash_set",
+    "keep_current",
+    "list_join",
+    "memoization_lru",
+    "min_max_builtin_or_heap"
+  ],
+  "feature_means": {
+    "input_size_log10": 3.23871696124031,
+    "current_algorithm_code": 2.006511627906977,
+    "current_complexity_rank": 3.857674418604651,
+    "lookup_freq_level": 1.4967441860465116,
+    "insert_ratio": 0.16983875968992249,
+    "delete_ratio": 0.057320930232558145,
+    "read_write_ratio": 4.775147286821705,
+    "data_distribution_code": 1.0049612403100776,
+    "memory_constraint_level": 1.0136434108527133,
+    "latency_requirement_level": 1.4995348837209301,
+    "call_count_log10": 2.192332062015504,
+    "runtime_pct": 0.4629891472868217
+  },
+  "feature_stds": {
+    "input_size_log10": 1.3785327595313739,
+    "current_algorithm_code": 1.9986707164254536,
+    "current_complexity_rank": 1.1210362427180705,
+    "lookup_freq_level": 1.1141732703167415,
+    "insert_ratio": 0.08966700900924836,
+    "delete_ratio": 0.033248690888281945,
+    "read_write_ratio": 3.634279641088094,
+    "data_distribution_code": 0.8154678322336758,
+    "memory_constraint_level": 0.8176480238579945,
+    "latency_requirement_level": 1.1208393287931473,
+    "call_count_log10": 0.2885916725569657,
+    "runtime_pct": 0.21339392665746432
+  },
+  "feature_importances": {
+    "input_size_log10": 0.08159,
+    "current_algorithm_code": 0.35482,
+    "current_complexity_rank": 0.12002,
+    "lookup_freq_level": 0.16932,
+    "insert_ratio": 0.00814,
+    "delete_ratio": 0.00384,
+    "read_write_ratio": 0.01028,
+    "data_distribution_code": 0.00916,
+    "memory_constraint_level": 0.00469,
+    "latency_requirement_level": 0.01059,
+    "call_count_log10": 0.08775,
+    "runtime_pct": 0.1398
+  },
+  "metrics": {
+    "random_forest": {
+      "accuracy": 0.9938,
+      "macro_precision": 0.99661,
+      "macro_recall": 0.9846,
+      "macro_f1": 0.99038,
+      "top_3_accuracy": 1.0,
+      "mrr": 0.99752
+    },
+    "xgboost": {
+      "accuracy": 0.9938,
+      "macro_precision": 0.99661,
+      "macro_recall": 0.9846,
+      "macro_f1": 0.99038,
+      "top_3_accuracy": 1.0,
+      "mrr": 0.9969
+    },
+    "best": {
+      "accuracy": 0.9938,
+      "macro_precision": 0.99661,
+      "macro_recall": 0.9846,
+      "macro_f1": 0.99038,
+      "top_3_accuracy": 1.0,
+      "mrr": 0.99752
+    }
+  },
+  "library_versions": {
+    "python": "3.12.0",
+    "scikit-learn": "1.5.0",
+    "xgboost": "2.1.4",
+    "joblib": "1.4.2",
+    "pandas": "2.2.3",
+    "numpy": "2.0.2"
+  },
+  "seed": 42,
+  "training_date": "2026-11-15T14:10:09.388578+00:00"
+}
