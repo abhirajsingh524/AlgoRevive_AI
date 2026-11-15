@@ -1,7 +1,10 @@
+import socket
 from typing import List
+from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.deps import get_current_user, get_database
 from app.core.errors import AppException
 from app.core.logging import get_logger
@@ -15,6 +18,20 @@ from app.workers.tasks import run_analysis
 logger = get_logger("analysis_api")
 
 router = APIRouter(tags=["analysis"])
+
+
+def _try_enqueue_task(run_id: str) -> None:
+    """Safely enqueue Celery task without blocking API request if broker is down."""
+    try:
+        parsed = urlparse(settings.REDIS_URL)
+        host = parsed.hostname or "localhost"
+        port = parsed.port or 6379
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.2)
+            s.connect((host, port))
+        run_analysis.apply_async(args=[run_id])
+    except Exception as e:
+        logger.warning(f"Could not enqueue Celery task, run remains queued: {e}")
 
 
 def get_owned_repository(repo_id: str, user_id: str, db: Session) -> Repository:
@@ -58,11 +75,8 @@ def create_analysis_run(
     db.commit()
     db.refresh(run)
 
-    # Dispatch Celery background task (or fallback gracefully)
-    try:
-        run_analysis.delay(run.id)
-    except Exception as e:
-        logger.warning(f"Could not enqueue Celery task, running inline or queued: {e}")
+    # Dispatch Celery background task safely
+    _try_enqueue_task(run.id)
 
     return run
 

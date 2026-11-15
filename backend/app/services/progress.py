@@ -1,4 +1,5 @@
 import json
+import time
 from typing import Any, Dict
 import redis
 from app.core.config import settings
@@ -6,18 +7,31 @@ from app.core.logging import get_logger
 
 logger = get_logger("progress")
 
+_last_redis_failure: float = 0.0
+
 
 def publish(job_id: str, payload: Dict[str, Any]) -> None:
     """Publishes a progress payload to Redis channel progress:{job_id}.
     
-    Wrapped in try/except so Redis outages or connection errors never break a request.
+    Wrapped in try/except with a brief failure cooldown so Redis outages
+    or connection timeouts never slow down requests or test execution.
     """
+    global _last_redis_failure
+    now = time.time()
+    if now - _last_redis_failure < 5.0:
+        return
+
     channel = f"progress:{job_id}"
     try:
-        r = redis.from_url(settings.REDIS_URL, socket_timeout=1.0)
+        r = redis.from_url(
+            settings.REDIS_URL,
+            socket_connect_timeout=0.2,
+            socket_timeout=0.2,
+        )
         message = json.dumps(payload)
         r.publish(channel, message)
     except Exception as e:
+        _last_redis_failure = time.time()
         logger.warning(f"Failed to publish progress to Redis channel {channel}: {e}")
 
 
