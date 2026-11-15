@@ -55,6 +55,14 @@ python -m unittest discover -s examples/demo_repo/tests
      - **Recharts Line Chart:** Runtime vs. input size $n$ on a log-log scale per entrypoint demonstrating empirical growth curves.
      - **Recharts Bar Chart:** Top functions sorted by cumulative execution time.
      - **Comparison Table:** Side-by-side comparison of empirical growth exponent $\alpha$, static complexity class ($O(n^2)$, $O(2^n)$), severity, and peak memory.
+    - Inspect the **Bottleneck Explorer**:
+      - Table of detected bottlenecks ranked by composite impact score (0.40 * runtime_pct + 0.25 * static_norm + 0.20 * call_freq_norm + 0.15 * mem_norm).
+      - Severity chips (CRITICAL, HIGH, MEDIUM, LOW) and visual runtime contribution bars.
+      - Click any bottleneck to open the **Detail Drawer**:
+        - **Why Flagged?**: Structured diagnostic tree showing exact weights, metrics, and evidence without invented numbers.
+        - **Code Highlight**: Monaco editor highlighting the bottleneck function with exact line numbers.
+        - **Workload Profile**: Characterized input size, lookup frequency, insert/delete ratios, read/write ratio, data distribution, and constraints.
+        - **Call Graph**: Mini React Flow visualization showing transitive upstream callers with depth and workload coverage badges.
 9. Return to the repository to explore the static analysis tabs:
    - **Files:** Browse source code in the Monaco code editor.
    - **Functions:** Inspect estimated time complexities (`O(n^2)`, `O(2^n)`), severity badges (`LOW`, `HIGH`, `CRITICAL`), loop depths, recursion flags, and detected pattern chips (`LINEAR_MEMBERSHIP_IN_LOOP`, `NAIVE_RECURSION`, etc.).

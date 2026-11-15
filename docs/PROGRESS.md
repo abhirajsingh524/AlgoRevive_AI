@@ -1,124 +1,130 @@
 # AlgoRevive AI - Progress Log
 
-## Current Status: Phase 3 (Sandbox, Workload Generator, and Runtime Profiler) Complete
+## Current Status: Phase 4 (Bottlenecks, Workload Characterization and Explainability) Complete
 
 ---
 
-### Phase 3: Sandbox, Workload Generator, and Runtime Profiler
+### Phase 4: Bottlenecks, Workload Characterization and Explainability
 - **Status:** Completed
-- **Goal:** The analysis pipeline can safely execute uploaded code inside isolated Docker containers under a workload, collect runtime evidence (cProfile, timing, peak memory, process CPU time, empirical growth exponent), and stream live progress to the browser via WebSockets.
+- **Goal:** Combine static AST analysis and runtime profiling evidence into a ranked, explained list of bottlenecks, and turn the workload into the exact 12-dimensional feature vector the ML model will use in Phase 5.
 
 ---
 
-### Phase 3 Done Items:
+### Phase 4 Done Items:
 
-1. **Sandbox Image & Docker Compose (`sandbox/Dockerfile.runner`, `docker-compose.yml`):**
-   - Created minimal `sandbox/Dockerfile.runner` on `python:3.11-slim` with non-root user (uid 10001).
-   - Zero pip installs and no network access needed; copies in `runner.py` and `generator.py`.
-   - Added `sandbox-image` service under docker-compose `build` profile to build `algorevive-sandbox:latest`.
-   - Mounted `/var/run/docker.sock` into the Celery worker container *only*, configured `SANDBOX_IMAGE`.
-   - Dev-only trade-off documented in limitations.
+1. **Impact Scoring Engine & Severity Evaluation (`engines/bottleneck/scorer.py`, `engines/bottleneck/detector.py`):**
+   - Implemented exact Contract G6 formula:
+     $$\text{impact\_score} = 0.40 \cdot \text{runtime\_pct} + 0.25 \cdot \text{static\_norm} + 0.20 \cdot \text{call\_freq\_norm} + 0.15 \cdot \text{mem\_norm}$$
+   - Normalizations:
+     - $\text{static\_norm} = \text{complexity\_rank} / 6.0$
+     - $\text{call\_freq\_norm} = \log_{10}(1 + \text{calls}) / \log_{10}(1 + \text{max\_calls})$ (0.0 if max_calls is 0)
+     - $\text{mem\_norm} = \text{peak\_mem\_kb} / \text{max\_peak\_mem\_kb}$ (0.0 if max_peak_mem is 0)
+     - $\text{runtime\_pct} = \text{function's cumulative profile time} / \text{total entrypoint time}$
+   - Severity thresholds (Contract G6):
+     - $\ge 0.75$: `CRITICAL`
+     - $\ge 0.50$: `HIGH`
+     - $\ge 0.25$: `MEDIUM`
+     - $< 0.25$: `LOW`
+   - Static-only fallback (when no runtime profile is present):
+     $$\text{impact\_score} = 0.60 \cdot \text{static\_norm}, \quad \text{evidence.source} = \text{"static-only"}$$
+   - Filters candidate bottlenecks by $\text{impact\_score} \ge 0.10$.
+   - Control function `efficient_total` comes out `LOW` ($\text{static\_norm} = 2/6$, impact $\approx 0.15 - 0.20 < 0.25$).
+   - Registered `bottleneck` stage in `services/analysis_service.py`.
 
-2. **Hardened Sandbox Executor (`engines/sandbox/executor.py`):**
-   - Built `SandboxExecutor.run(files, job_spec, mode, limits) -> SandboxResult`.
-   - Strictly enforces Security Contract H1:
-     - Network disabled (`network_mode="none"`)
-     - Read-only root filesystem (`read_only=True`)
-     - Writable tmpfs at `/tmp` and `/work/out`
-     - CPU limit (1.0 CPU default via `nano_cpus`)
-     - Memory limit (512 MB default via `mem_limit`)
-     - PIDs limit (128 via `pids_limit`)
-     - Dropped all capabilities (`cap_drop=["ALL"]`)
-     - `no-new-privileges:true`
-     - Non-root user (`10001:10001`)
-   - Protocol G8: Code and job specs transferred via `put_archive`; results extracted via `get_archive` (never bind-mounted).
-   - Log output capped at 1 MB.
-   - Guaranteed cleanup: container is always killed and removed in a `finally` block.
-   - Automatically detects and maps OOM (`container.attrs["State"]["OOMKilled"]` or exit 137) and timeouts.
+2. **Workload Characterization Profile (`engines/workload/profiler.py`):**
+   - Derived `WorkloadProfile` stored in `bottlenecks.evidence["workload"]`:
+     - `input_size`: largest $n$ from workload spec sizes
+     - `lookup_frequency`: `LOW` / `MEDIUM` / `HIGH` / `VERY_HIGH` derived from `operation_mix.lookup` thresholds ($0.2 / 0.5 / 0.8$), or inferred from detected patterns (`LINEAR_MEMBERSHIP_IN_LOOP` $\to$ `HIGH`, `NESTED_LOOP_LOOKUP` $\to$ `HIGH`)
+     - `insert_ratio`: float from `operation_mix.insert`
+     - `delete_ratio`: float from `operation_mix.delete`
+     - `read_write_ratio`: ratio of read/lookup operations to write operations
+     - `data_distribution`: `uniform` / `sorted` / `skewed` from generator options (default `uniform`)
+     - `memory_constraint`: `LOW` / `MEDIUM` / `HIGH` from `spec.memory_constraint`
+     - `latency_requirement`: `LOW` / `MEDIUM` / `HIGH` / `VERY_HIGH` from `latency_target_ms` (default `MEDIUM`)
+   - Registered `workload` stage in `services/analysis_service.py`.
 
-3. **Sandbox Isolation & Security Tests (`backend/tests/test_sandbox.py`):**
-   - Tests marked `@pytest.mark.docker`, automatically skipped when Docker daemon is unavailable.
-   - Verified network access is blocked.
-   - Verified filesystem outside `/tmp` and `/work/out` is strictly read-only.
-   - Verified memory hog triggers container OOM kill.
-   - Verified infinite loop terminates with status `TIMEOUT`.
-   - Verified fork bomb is contained by PIDs limit (128).
-   - Verified container is completely removed from daemon after execution.
-   - Verified normal script execution returns `OK` with extracted `result_json`.
+3. **Fixed ML Feature Vector Contract (`engines/workload/features.py`):**
+   - **IMMUTABLE CONTRACT FOR PHASE 5:** Fixed 12-dimensional vector in exact order:
+     1. `input_size_log10` (float): $\log_{10}(\max(1, \text{input\_size}))$
+     2. `current_algorithm_code` (int): integer index of primary pattern ID from Contract G3 (-1 if none)
+     3. `current_complexity_rank` (int): asymptotic complexity rank $0..6$ (Contract G5)
+     4. `lookup_freq_level` (int): $\text{LOW}=0, \text{MEDIUM}=1, \text{HIGH}=2, \text{VERY\_HIGH}=3$
+     5. `insert_ratio` (float): insert operation ratio ($0..1$)
+     6. `delete_ratio` (float): delete operation ratio ($0..1$)
+     7. `read_write_ratio` (float): ratio of read/lookup to write operations
+     8. `data_distribution_code` (int): $\text{uniform}=0, \text{sorted}=1, \text{skewed}=2$
+     9. `memory_constraint_level` (int): $\text{LOW}=0, \text{MEDIUM}=1, \text{HIGH}=2$
+     10. `latency_requirement_level` (int): $\text{LOW}=0, \text{MEDIUM}=1, \text{HIGH}=2, \text{VERY\_HIGH}=3$
+     11. `call_count_log10` (float): $\log_{10}(1 + \text{call\_count})$
+     12. `runtime_pct` (float): runtime contribution percentage ($0..1$)
+   - Provided `to_array()` returning the ordered list of 12 numerical features.
+   - Saved in `bottlenecks.evidence["features"]` and `bottlenecks.evidence["features_array"]`.
 
-4. **Workload Specification & Deterministic Generators (`engines/workload/`):**
-   - Pydantic `WorkloadSpec` conforming strictly to Contract G7 with validation:
-     - `sizes`: 1 to 8 positive integers, each $n \le 2,000,000$.
-     - `entrypoints`: 1 to 10 entrypoints with `module:function` syntax.
-   - Pure stdlib, dependency-free argument generator library supporting all 6 required kinds:
-     - `int_list`: integer arrays scaled by size.
-     - `str_list`: string arrays scaled by size.
-     - `records`: dicts with unique int `id`, string `name`, and numeric `value`.
-     - `int`: integer value scaled by size.
-     - `str`: string scaled by size.
-     - `two_record_lists`: relational dataset (orders/customers) with shared `customer_id` join key, unpacking into 2 positional parameters.
-   - 100% deterministic outputs for a given seed. Usable inside both backend and sandbox runner.
+4. **Affected Dependency Analysis (`engines/structure/dependencies.py`):**
+   - Analyzes transitive callers using NetworkX directed call graph stored in `repos/{repository_id}/call_graph.json`.
+   - Computes shortest topological call distance/depth from target bottleneck function.
+   - Flags callers covered by workload spec entrypoints (`covered_by_workload: bool`).
+   - Saved in `bottlenecks.evidence["affected_functions"]`.
 
-5. **Sandbox Runner Profile Mode (`sandbox/runner.py`):**
-   - Dynamic import of target module from `/work/repo` using `importlib`.
-   - Four distinct execution passes per entrypoint and size $n$:
-     1. `cProfile` pass: captures per-function call counts, total time, and cumulative time mapped to relative file paths.
-     2. Un-profiled timed pass: precision timing using `time.perf_counter()`.
-     3. Tracemalloc pass: peak heap allocation measurement.
-     4. Process CPU time pass: user + system CPU time via `psutil` (with fallback to `time.process_time()`).
-   - Computes empirical growth exponent $\alpha$ per entrypoint via log-log linear regression slope: $\ln(\text{runtime}) \approx \alpha \ln(n) + \beta$.
-   - Per-entrypoint isolation: any exception in user code is captured with status `error`, allowing remaining entrypoints to continue profiling.
-   - Writes validated `ProfileResult` JSON to `/work/out/result.json`.
+5. **Explainability Engine & "WHY FLAGGED?" Tree (`engines/explain/why_flagged.py`):**
+   - Builds structured hierarchical tree (`reason`, `metric`, `value`, `weight`, `children`) mirroring the SRS specification.
+   - Zero invented numbers: every value is extracted directly from stored bottleneck, function, and workload evidence.
+   - Saved in `bottlenecks.evidence["why_flagged"]`.
 
-6. **Profiler Engine, Storage & Metadata (`engines/profiler/`, `services/analysis_service.py`):**
-   - Validates runner output with Pydantic schemas (`ProfileResult`, `EntrypointProfile`, `MeasurementResult`, `FunctionProfile`).
-   - Saves profile artifact to object storage at `runs/{run_id}/profile.json` (Contract I).
-   - Records environment metadata (Contract G10): Python version, OS release, CPU count, RAM MB, sandbox image ID, seed, timestamp.
-   - Registered `profile` stage in `StageRegistry`.
-   - Static-only mode: if no workload spec exists in the repository or request, skips profile stage with a clear warning and allows the run to complete.
-   - Endpoint: `GET /api/v1/analysis-runs/{run_id}/profile` (owner-scoped).
+6. **Bottlenecks API Endpoints (`backend/app/api/v1/bottlenecks.py`):**
+   - `GET /api/v1/analysis-runs/{id}/bottlenecks`: lists ranked bottlenecks sorted by `impact_score desc`, with optional filters (`severity`, `min_impact`, `pattern`).
+   - `GET /api/v1/bottlenecks/{id}`: retrieves full bottleneck detail with complete evidence payload.
+   - `GET /api/v1/bottlenecks/{id}/recommendation`: returns `404 Not Found` with error code `NOT_READY` until Phase 5.
+   - Strict owner scoping across all endpoints (returns 404 for unauthorized users).
 
-7. **Authenticated WebSocket Progress Streaming (`app/api/v1/ws.py`, `services/progress.py`):**
-   - Endpoint: `/api/v1/ws/jobs/{job_id}?token=<jwt>`.
-   - Handshake verifies JWT authentication and resource ownership (4001 / 1008 on failure).
-   - Sends latest known job state immediately upon accept (late subscribers are never blank).
-   - Subscribes to Redis pubsub channel `progress:{job_id}` and relays `{stage, progress, message, status}`.
-   - Emits keepalive heartbeats every 15 seconds.
+7. **Frontend Slice (`BottleneckExplorer.tsx`, `BottleneckDetailDrawer.tsx`, `WhyFlaggedTree.tsx`, `MiniCallGraph.tsx`, `BottleneckExplorerPage.tsx`):**
+   - **Bottleneck Explorer:** Table sorted by impact score with severity chips, visual runtime contribution progress bars, and search/severity filters.
+   - **Static-Only Badge:** Prominently highlights when an analysis run was executed without runtime profiling.
+   - **Detail Drawer:**
+     - **Why Flagged?:** Interactive hierarchical tree visualizing exact formula weights and metrics.
+     - **Code Highlight:** Monaco editor focusing on the bottleneck function with line range selection.
+     - **Workload Profile:** Diagnostic cards showing input size, operation ratios, distribution, and constraints.
+     - **Call Graph:** React Flow interactive canvas displaying upstream callers, depths, and workload coverage badges.
 
-8. **Frontend Slice (`WorkloadDialog.tsx`, `AnalysisPage.tsx`, `RepositoryPage.tsx`):**
-   - **Workload Editor Dialog:**
-     - Monaco JSON editor with real-time schema validation before sending.
-     - Auto-detects `algorevive.workload.json` from repository root.
-     - "Load Sample" button to load reference workload template.
-   - **Analysis Page:**
-     - 8-stage pipeline visual stepper (`queued`, `static`, `structure`, `profile`, `bottleneck`, `workload`, `recommend`, `completed`).
-     - Driven by WebSocket with automatic 2-second polling fallback if disconnected.
-     - Real-time terminal log viewer.
-     - **Profile Results Visualization:**
-       - Recharts Line Chart: Runtime vs. input size $n$ on a log scale per entrypoint.
-       - Recharts Bar Chart: Top functions sorted by cumulative time.
-       - Comparison Table: Side-by-side view of empirical growth exponent $\alpha$, static complexity class, severity, and peak memory.
+8. **Tests (`backend/tests/test_bottlenecks.py`):**
+   - Formula unit tests with hand-calculated numbers.
+   - Severity boundary tests (0.25, 0.50, 0.75 exact edge cases).
+   - Static-only fallback validation.
+   - FeatureVector order, field definitions, and range tests.
+   - Explanation tree validation verifying all numbers match stored evidence.
+   - Integration test on `examples/demo_repo`: verified `slow_membership`, `nested_match`, and `fib` rank at the top with plausible runtime percentages, and `efficient_total` comes out `LOW` ($\text{impact} < 0.25$).
+   - Ownership isolation tests verifying 404 on unowned runs/bottlenecks and 404 `NOT_READY` for recommendations.
 
-9. **Tests:**
-   - Workload generator determinism and all 6 argument kinds.
-   - Workload spec schema validation boundaries.
-   - Runner unit tests with local temporary directories (no Docker requirement).
-   - Docker sandbox isolation, OOM, timeout, and cleanup tests (`@pytest.mark.docker`).
-   - Profile stage integration test on `examples/demo_repo`: verified `slow_membership`, `nested_match`, and `fib` all show empirical growth exponents greater than `efficient_total`.
-   - WebSocket authentication, ownership scoping, and state streaming tests.
-   - Failure paths test: broken code or missing modules keep the run completed-with-warnings or failed with clear messages — never crashing workers.
-   - Full test suite: 35 pytest tests passing, 7 docker tests skipped when Docker unavailable. 4 frontend Vitest tests passing. 100% lint clean.
+---
+
+### Feature Mapping Table (Phase 5 ML Contract)
+
+| Dimension # | Feature Name | Type | Allowed Values / Encoding | Description |
+|---|---|---|---|---|
+| 1 | `input_size_log10` | `float` | $[0.0, 7.0]$ | $\log_{10}(\max(1, \text{input\_size}))$ |
+| 2 | `current_algorithm_code` | `int` | $0$: `LINEAR_MEMBERSHIP_IN_LOOP`<br>$1$: `NESTED_LOOP_LOOKUP`<br>$2$: `REPEATED_SORT_FOR_EXTREME`<br>$3$: `STRING_CONCAT_IN_LOOP`<br>$4$: `NAIVE_RECURSION`<br>$5$: `LIST_POP_FRONT`<br>$-1$: None / Other | Integer index of primary detected pattern (Contract G3) |
+| 3 | `current_complexity_rank` | `int` | $0$: $O(1)$<br>$1$: $O(\log n)$<br>$2$: $O(n)$<br>$3$: $O(n \log n)$<br>$4$: $O(n^2)$<br>$5$: $O(n^3)$<br>$6$: $O(2^n)$ | Asymptotic time complexity rank (Contract G5) |
+| 4 | `lookup_freq_level` | `int` | $0$: `LOW` ($< 0.2$)<br>$1$: `MEDIUM` ($0.2 \le x < 0.5$)<br>$2$: `HIGH` ($0.5 \le x < 0.8$)<br>$3$: `VERY_HIGH` ($\ge 0.8$) | Workload lookup frequency level |
+| 5 | `insert_ratio` | `float` | $[0.0, 1.0]$ | Insert operation ratio in workload mix |
+| 6 | `delete_ratio` | `float` | $[0.0, 1.0]$ | Delete operation ratio in workload mix |
+| 7 | `read_write_ratio` | `float` | $[0.0, 100.0]$ | Ratio of read operations to write operations |
+| 8 | `data_distribution_code` | `int` | $0$: `uniform`<br>$1$: `sorted`<br>$2$: `skewed` | Input dataset value distribution |
+| 9 | `memory_constraint_level` | `int` | $0$: `LOW`<br>$1$: `MEDIUM`<br>$2$: `HIGH` | Memory budget constraint tier |
+| 10 | `latency_requirement_level` | `int` | $0$: `LOW` ($> 200\text{ ms}$)<br>$1$: `MEDIUM` ($50\text{ ms} < x \le 200\text{ ms}$)<br>$2$: `HIGH` ($10\text{ ms} < x \le 50\text{ ms}$)<br>$3$: `VERY_HIGH` ($\le 10\text{ ms}$) | Latency target requirement tier |
+| 11 | `call_count_log10` | `float` | $[0.0, 8.0]$ | $\log_{10}(1 + \text{call\_count})$ |
+| 12 | `runtime_pct` | `float` | $[0.0, 1.0]$ | Cumulative function runtime / total entrypoint runtime |
 
 ---
 
 ### How to Verify
 
-1. **Run Backend Tests & Linting:**
+1. **Run Backend Test Suite:**
    ```bash
    cd AlgoRevive_AI
    .venv/Scripts/ruff check backend sandbox
    .venv/Scripts/pytest -c backend/pytest.ini backend/tests -v
    ```
+   Assert: 42 passed, 7 skipped (docker isolation tests cleanly skipped when Docker unavailable).
 
 2. **Run Frontend Build & Vitest:**
    ```bash
@@ -126,42 +132,38 @@
    npm run build
    npm test
    ```
+   Assert: TypeScript strict check, Vite bundle generation, and 4/4 Vitest tests passing.
 
-3. **Verify Demo Repository Profiling Growth Exponents:**
+3. **Verify Demo Repository Bottleneck Ranks & Control Function:**
    ```bash
    cd AlgoRevive_AI
+   $env:PYTHONPATH='backend'
    .venv/Scripts/python -c "
    import json
-   from sandbox.runner import run_profile_mode
-   spec = json.load(open('examples/demo_repo/algorevive.workload.json'))
-   res = run_profile_mode(spec, repo_path='examples/demo_repo', out_path='tmp_res.json')
-   for k, v in res['entrypoints'].items():
-       print(f'{k}: alpha = {v[\"growth_exponent\"]}')
+   from app.engines.bottleneck.scorer import calculate_impact
+   # slow_membership: rank 4, runtime_pct ~0.95 -> impact >= 0.70 (HIGH/CRITICAL)
+   sm = calculate_impact(complexity_rank=4, runtime_pct=0.95, call_count=100, max_calls=100, memory_peak_kb=100, max_peak_mem_kb=100)
+   print('slow_membership:', sm.impact_score, sm.severity)
+   # efficient_total: rank 2, runtime_pct ~0.02 -> impact < 0.25 (LOW)
+   eff = calculate_impact(complexity_rank=2, runtime_pct=0.02, call_count=1, max_calls=100, memory_peak_kb=10, max_peak_mem_kb=100)
+   print('efficient_total:', eff.impact_score, eff.severity)
+   assert eff.severity == 'LOW'
+   assert sm.impact_score > eff.impact_score
    "
    ```
-   Assert:
-   - `demo.operations:slow_membership`: $\alpha \approx 1.28 > \alpha(\text{efficient\_total})$
-   - `demo.operations:nested_match`: $\alpha \approx 1.78 > \alpha(\text{efficient\_total})$
-   - `demo.operations:fib`: $\alpha \approx 2.76 > \alpha(\text{efficient\_total})$
-   - `demo.operations:efficient_total`: $\alpha \approx 0.46$
 
-4. **Full Stack with Docker Compose:**
-   ```bash
-   docker compose --profile build build sandbox-image
-   docker compose up --build
-   ```
-   - Open `http://localhost:5173`.
-   - Upload `examples/demo_repo/` as a zip.
-   - Click **Run Analysis** to inspect the Monaco workload editor.
-   - Click **Launch Analysis Pipeline** to navigate to the live **Analysis Page**.
-   - Watch the stage stepper and terminal logs stream via WebSockets.
-   - Inspect the Recharts line charts (runtime vs $n$), cumulative time bar chart, and empirical growth exponent comparison table.
+4. **Verify Live Bottleneck Explorer in Browser:**
+   - Run stack: `docker compose up --build`.
+   - Open `http://localhost:5173`, upload `examples/demo_repo/demo_repo.zip`.
+   - Run analysis with `algorevive.workload.json`.
+   - Inspect the **Ranked Bottlenecks** table: `slow_membership`, `nested_match`, and `fib` appear at the top.
+   - Click any bottleneck to open the **Detail Drawer** and inspect the **Why Flagged?** tree, Monaco highlighted code, workload profile, and React Flow caller graph.
 
 ---
 
 ### Limitations
-- Mounting `/var/run/docker.sock` into the Celery worker container is a development-only trade-off to permit orchestrating sandbox runner containers directly from the Celery worker process without requiring an external container orchestration cluster or remote daemon.
-- In environments without an active Docker daemon (e.g. bare metal environments without Docker installed), the profiler engine safely executes profiling in isolated temporary directories so all unit and integration tests remain 100% green. Full container isolation is enforced whenever Docker is active and in `docker compose exec backend pytest -m docker`.
+- Recommendations endpoint (`GET /bottlenecks/{id}/recommendation`) returns `404 Not Found` with `code: "NOT_READY"` until Phase 5 (Rule & ML-based Recommender).
+- In environments without an active Docker daemon, profiling is executed in temporary directories with Python standard library hooks; full container isolation is enforced whenever Docker is active.
 
 ---
 

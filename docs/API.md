@@ -594,3 +594,151 @@ Real-time authenticated WebSocket streaming live pipeline progress from Redis pu
   "status": "running"
 }
 ```
+
+---
+
+## 7. Bottlenecks & Explainability (Phase 4)
+
+### GET `/api/v1/analysis-runs/{run_id}/bottlenecks`
+Retrieves ranked candidate bottlenecks for an owned analysis run, ordered by `impact_score` descending.
+
+- **Auth Required:** Yes (Owner-scoped)
+- **Query Parameters (optional):**
+  - `severity` (string): Filter by severity tier (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`).
+  - `min_impact` (float): Filter functions with `impact_score >= min_impact` (default threshold in pipeline is 0.10).
+  - `pattern` (string): Filter functions by detected algorithmic pattern ID (`LINEAR_MEMBERSHIP_IN_LOOP`, `NESTED_LOOP_LOOKUP`, etc.).
+- **Response 200 OK:**
+```json
+[
+  {
+    "id": "b3e712a4-5678-4321-9abc-def012345678",
+    "analysis_run_id": "7189f196-fd6f-4f53-a941-5ec417f90e1f",
+    "function_id": "1c2d3e4f-5a6b-7c8d-9e0f-1a2b3c4d5e6f",
+    "static_score": 0.6667,
+    "runtime_score": 0.952,
+    "call_count": 100,
+    "runtime_pct": 0.945,
+    "memory_peak_kb": 240.5,
+    "impact_score": 0.8125,
+    "severity": "CRITICAL",
+    "evidence": {
+      "source": "runtime",
+      "static_norm": 0.6667,
+      "runtime_pct": 0.945,
+      "call_freq_norm": 1.0,
+      "mem_norm": 0.85,
+      "workload": {
+        "input_size": 100,
+        "lookup_frequency": "VERY_HIGH",
+        "insert_ratio": 0.05,
+        "delete_ratio": 0.05,
+        "read_write_ratio": 9.0,
+        "data_distribution": "uniform",
+        "memory_constraint": "LOW",
+        "latency_requirement": "MEDIUM"
+      },
+      "features": {
+        "input_size_log10": 2.0,
+        "current_algorithm_code": 0,
+        "current_complexity_rank": 4,
+        "lookup_freq_level": 3,
+        "insert_ratio": 0.05,
+        "delete_ratio": 0.05,
+        "read_write_ratio": 9.0,
+        "data_distribution_code": 0,
+        "memory_constraint_level": 0,
+        "latency_requirement_level": 1,
+        "call_count_log10": 2.0043,
+        "runtime_pct": 0.945
+      },
+      "features_array": [2.0, 0.0, 4.0, 3.0, 0.05, 0.05, 9.0, 0.0, 0.0, 1.0, 2.0043, 0.945],
+      "affected_functions": [],
+      "why_flagged": {
+        "reason": "Function flagged as CRITICAL bottleneck (impact score 0.8125)",
+        "metric": "severity",
+        "value": "CRITICAL",
+        "weight": 1.0,
+        "children": [
+          {
+            "reason": "Asymptotic complexity estimated as O(n^2) (rank 4/6)",
+            "metric": "complexity_class",
+            "value": "O(n^2)",
+            "weight": 0.25,
+            "children": [
+              {
+                "reason": "Inefficient algorithmic pattern detected: LINEAR_MEMBERSHIP_IN_LOOP",
+                "metric": "pattern",
+                "value": "LINEAR_MEMBERSHIP_IN_LOOP",
+                "weight": null
+              }
+            ]
+          },
+          {
+            "reason": "Dominant execution time: 94.5% of total entrypoint time",
+            "metric": "runtime_pct",
+            "value": "94.5%",
+            "weight": 0.40
+          },
+          {
+            "reason": "High execution frequency with 100 calls",
+            "metric": "call_count",
+            "value": 100,
+            "weight": 0.20
+          },
+          {
+            "reason": "Peak heap memory allocation of 240.5 KB",
+            "metric": "memory_peak_kb",
+            "value": "240.5 KB",
+            "weight": 0.15
+          },
+          {
+            "reason": "Evaluated under workload input size of 100 records",
+            "metric": "input_size",
+            "value": 100,
+            "weight": null
+          },
+          {
+            "reason": "Impact score 0.8125 maps to severity tier CRITICAL",
+            "metric": "impact_score",
+            "value": 0.8125,
+            "weight": 1.0
+          }
+        ]
+      }
+    },
+    "function": {
+      "id": "1c2d3e4f-5a6b-7c8d-9e0f-1a2b3c4d5e6f",
+      "name": "slow_membership",
+      "qualified_name": "demo.operations.slow_membership",
+      "complexity_class": "O(n^2)",
+      "complexity_rank": 4
+    }
+  }
+]
+```
+- **Errors:**
+  - `404 Not Found` (`NOT_FOUND`): Analysis run not found or user is not the owner.
+
+---
+
+### GET `/api/v1/bottlenecks/{bottleneck_id}`
+Retrieves detailed information and complete evidence for a specific bottleneck.
+
+- **Auth Required:** Yes (Owner-scoped)
+- **Response 200 OK:** Single Bottleneck JSON object matching schema above.
+- **Errors:**
+  - `404 Not Found` (`NOT_FOUND`): Bottleneck not found or not owned by user.
+
+---
+
+### GET `/api/v1/bottlenecks/{bottleneck_id}/recommendation`
+Retrieves algorithm recommendation for a bottleneck. In Phase 4, returns `404 Not Found` with code `NOT_READY` until Phase 5.
+
+- **Auth Required:** Yes (Owner-scoped)
+- **Response 404 Not Found:**
+```json
+{
+  "detail": "Recommendation not ready",
+  "code": "NOT_READY"
+}
+```
