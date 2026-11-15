@@ -128,3 +128,42 @@ export interface CallGraphData {
   nodes: CallGraphNode[];
   edges: CallGraphEdge[];
 }
+
+export interface FunctionProfile {
+  file: string;
+  function: string;
+  lineno: number;
+  calls: number;
+  total_time: number;
+  cumulative_time: number;
+}
+
+export interface MeasurementResult {
+  n: number;
+  runtime_s: number;
+  cpu_time_s: number;
+  peak_memory_kb: number;
+  top_functions: FunctionProfile[];
+}
+
+export interface EntrypointProfile {
+  function: string;
+  status: string;
+  growth_exponent: number;
+  sizes: number[];
+  measurements: MeasurementResult[];
+  error?: string;
+  warning?: string;
+  traceback?: string;
+}
+
+export interface ProfileResult {
+  status: string;
+  entrypoints: Record<string, EntrypointProfile>;
+  summary: {
+    total_entrypoints: number;
+    successful_entrypoints: number;
+    failed_entrypoints: number;
+  };
+  extra?: Record<string, any>;
+}

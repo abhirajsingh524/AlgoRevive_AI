@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import Editor, { OnMount } from '@monaco-editor/react';
 import {
+  Activity,
   AlertCircle,
   ArrowLeft,
   Check,
@@ -27,6 +28,7 @@ import {
 import { FileTree } from '../components/FileTree';
 import { FunctionsTable } from '../components/FunctionsTable';
 import { CallGraphView } from '../components/CallGraphView';
+import { WorkloadDialog } from '../components/WorkloadDialog';
 
 type ActiveTab = 'files' | 'functions' | 'callgraph';
 
@@ -38,6 +40,7 @@ interface HighlightRange {
 
 export const RepositoryPage: React.FC = () => {
   const { repositoryId } = useParams<{ repositoryId: string }>();
+  const navigate = useNavigate();
   const [repository, setRepository] = useState<Repository | null>(null);
   const [files, setFiles] = useState<FileRecord[]>([]);
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
@@ -50,6 +53,7 @@ export const RepositoryPage: React.FC = () => {
   const [activeRun, setActiveRun] = useState<AnalysisRun | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [isWorkloadOpen, setIsWorkloadOpen] = useState<boolean>(false);
 
   // Loading & error
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -196,18 +200,28 @@ export const RepositoryPage: React.FC = () => {
     return () => clearInterval(interval);
   }, [activeRun, repositoryId]);
 
-  const handleRunAnalysis = async () => {
+  const handleOpenWorkloadDialog = () => {
+    setIsWorkloadOpen(true);
+  };
+
+  const handleLaunchAnalysis = async (workloadSpec: Record<string, any>) => {
     if (!repositoryId || isAnalyzing) return;
     try {
       setIsAnalyzing(true);
       setAnalysisError(null);
-      const run = await api.analysis.createRun(repositoryId);
+      const run = await api.analysis.createRun(repositoryId, { workload_spec: workloadSpec });
       setActiveRun(run);
+      setIsWorkloadOpen(false);
+      navigate(`/repositories/${repositoryId}/analysis/${run.id}`);
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { detail?: string } } };
       setAnalysisError(axiosErr.response?.data?.detail || 'Failed to initiate analysis');
       setIsAnalyzing(false);
     }
+  };
+
+  const handleRunAnalysis = async () => {
+    handleOpenWorkloadDialog();
   };
 
   const handleSelectFunction = (fn: FunctionRecord) => {
@@ -296,6 +310,15 @@ export const RepositoryPage: React.FC = () => {
 
         {/* Actions / Run Analysis */}
         <div className="flex items-center gap-3">
+          {activeRun && (
+            <Link
+              to={`/repositories/${repositoryId}/analysis/${activeRun.id}`}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition"
+            >
+              <Activity className="h-3.5 w-3.5 text-indigo-400" />
+              <span>Live Analysis</span>
+            </Link>
+          )}
           <button
             onClick={handleRunAnalysis}
             disabled={isAnalyzing}
@@ -502,6 +525,15 @@ export const RepositoryPage: React.FC = () => {
           />
         )}
       </div>
+
+      <WorkloadDialog
+        isOpen={isWorkloadOpen}
+        onClose={() => setIsWorkloadOpen(false)}
+        onSubmit={handleLaunchAnalysis}
+        repositoryId={repositoryId || ''}
+        files={files}
+        isSubmitting={isAnalyzing}
+      />
     </div>
   );
 };

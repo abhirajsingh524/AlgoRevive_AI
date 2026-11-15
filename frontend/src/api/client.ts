@@ -118,9 +118,13 @@ export const api = {
     },
   },
   analysis: {
-    createRun: async (repoId: string, config?: Record<string, any>): Promise<AnalysisRun> => {
+    createRun: async (
+      repoId: string,
+      payload?: { config?: Record<string, any>; workload_spec?: Record<string, any> }
+    ): Promise<AnalysisRun> => {
       const res = await apiClient.post<AnalysisRun>(`/repositories/${repoId}/analysis-runs`, {
-        config: config || {},
+        config: payload?.config || {},
+        workload_spec: payload?.workload_spec,
       });
       return res.data;
     },
@@ -130,6 +134,10 @@ export const api = {
     },
     getRun: async (runId: string): Promise<AnalysisRun> => {
       const res = await apiClient.get<AnalysisRun>(`/analysis-runs/${runId}`);
+      return res.data;
+    },
+    getProfile: async (runId: string): Promise<any> => {
+      const res = await apiClient.get(`/analysis-runs/${runId}/profile`);
       return res.data;
     },
   },
