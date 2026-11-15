@@ -22,6 +22,7 @@ def publish(job_id: str, payload: Dict[str, Any]) -> None:
         return
 
     channel = f"progress:{job_id}"
+    cache_key = f"progress_latest:{job_id}"
     try:
         r = redis.from_url(
             settings.REDIS_URL,
@@ -30,6 +31,7 @@ def publish(job_id: str, payload: Dict[str, Any]) -> None:
         )
         message = json.dumps(payload)
         r.publish(channel, message)
+        r.set(cache_key, message, ex=3600)
     except Exception as e:
         _last_redis_failure = time.time()
         logger.warning(f"Failed to publish progress to Redis channel {channel}: {e}")
@@ -40,6 +42,7 @@ def publish_progress(
     stage: str,
     progress: int,
     status: str = "running",
+    message: str | None = None,
     error: str | None = None,
 ) -> None:
     """Convenience helper to publish structured progress updates."""
@@ -48,8 +51,10 @@ def publish_progress(
         "stage": stage,
         "progress": progress,
         "status": status,
+        "message": message or f"Stage: {stage} ({progress}%)",
     }
     if error is not None:
         payload["error"] = error
+        payload["message"] = error
     publish(job_id, payload)
 
