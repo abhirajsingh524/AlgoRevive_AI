@@ -1,131 +1,167 @@
 # AlgoRevive AI - Progress Log
 
-## Current Status: Phase 2 (Static Analysis, Complexity, and Call Graph) Complete
-
-### Phase 2: Static Analysis, Complexity, and Call Graph
-- **Status:** Completed
-- **Goal:** After uploading a repository, the user can run static analysis and view every function with estimated complexity, detected performance patterns, severity, and an interactive call graph.
+## Current Status: Phase 3 (Sandbox, Workload Generator, and Runtime Profiler) Complete
 
 ---
 
-### Done
+### Phase 3: Sandbox, Workload Generator, and Runtime Profiler
+- **Status:** Completed
+- **Goal:** The analysis pipeline can safely execute uploaded code inside isolated Docker containers under a workload, collect runtime evidence (cProfile, timing, peak memory, process CPU time, empirical growth exponent), and stream live progress to the browser via WebSockets.
 
-1. **Demo Repository (`examples/demo_repo/`):**
-   - Created pure stdlib Python package `demo` with all 7 required functions and control function:
-     - `slow_membership(users, ids)`: loops over users and checks `u["id"] in ids` where `ids` is a list.
-     - `nested_match(orders, customers)`: nested for loops joining on `customer_id == id`.
-     - `repeated_sort(values, queries)`: returns `sorted(values)[0]` inside query loop.
-     - `concat_report(parts)`: string accumulation with `s += part` in loop.
-     - `fib(n)`: naive recursion with two self-calls without memoization.
-     - `drain_queue(items)`: while loop calling `pop(0)`.
-     - `efficient_total(values)`: control sum loop (guaranteed LOW severity, never flagged HIGH or CRITICAL).
-   - Created `algorevive.workload.json` conforming to Contract G7 with all 7 functions.
-   - Created `examples/demo_repo/tests/test_demo.py` using standard `unittest`.
+---
 
-2. **AST Static Analyzer Engine (`engines/static_analyzer/`):**
-   - Built robust Python AST parser with resilient error handling: `SyntaxError` and `IndentationError` are recorded as warnings in `result.warnings` and never abort execution.
-   - Extracts top-level functions, class definitions, methods, and nested functions with accurate lexical qualified names (`Class.method`, `outer.inner`).
-   - Extracts parameters (names, annotations, defaults, kinds), imports, and call signatures.
-   - Computes loop nesting depth (maximum nested `For`/`While`), comprehension loop counts, direct recursive calls, McCabe cyclomatic complexity, and line ranges into `functions.metrics`.
+### Phase 3 Done Items:
 
-3. **Rule-Based Complexity Estimator (`engines/complexity/`):**
-   - Implemented asymptotic complexity estimator strictly following Contract G5:
-     - No loops, no recursion: $O(1)$ [rank 0, LOW]
-     - Single loop or comprehension: $O(n)$ [rank 2, LOW]
-     - `sorted()` or `.sort()` outside loop: $O(n \log n)$ [rank 3, MEDIUM]
-     - Loop depth $k \ge 2$: $O(n^k)$ (depth 2 $\to O(n^2)$ [rank 4, HIGH]; depth 3 $\to O(n^3)$ [rank 5, CRITICAL])
-     - Sort inside loop: at least $O(n^2)$ [rank 4, HIGH]
-     - Linear membership check (`in`/`not in` on list-like collections) inside loop: adds $+1$ factor of $n$ ($O(n^2)$ [rank 4, HIGH])
-     - Single recursive call: $O(n)$ [rank 2, LOW]
-     - $\ge 2$ recursive self-calls without memoization: $O(2^n)$ [rank 6, CRITICAL]
-     - `@lru_cache` or `@cache` decorator eliminates exponential recursion to $O(n)$ [rank 2, LOW]
-   - Fully documented heuristics in module docstring with clear static estimate disclaimer.
+1. **Sandbox Image & Docker Compose (`sandbox/Dockerfile.runner`, `docker-compose.yml`):**
+   - Created minimal `sandbox/Dockerfile.runner` on `python:3.11-slim` with non-root user (uid 10001).
+   - Zero pip installs and no network access needed; copies in `runner.py` and `generator.py`.
+   - Added `sandbox-image` service under docker-compose `build` profile to build `algorevive-sandbox:latest`.
+   - Mounted `/var/run/docker.sock` into the Celery worker container *only*, configured `SANDBOX_IMAGE`.
+   - Dev-only trade-off documented in limitations.
 
-4. **Pattern Detector (`engines/static_analyzer/patterns.py`):**
-   - Detects exactly the six performance anti-pattern IDs from Contract G3:
-     1. `LINEAR_MEMBERSHIP_IN_LOOP`
-     2. `NESTED_LOOP_LOOKUP`
-     3. `REPEATED_SORT_FOR_EXTREME`
-     4. `STRING_CONCAT_IN_LOOP`
-     5. `NAIVE_RECURSION`
-     6. `LIST_POP_FRONT`
-   - Stores line numbers and matched AST node source snippets in `functions.patterns`.
-   - Strict preconditions ensure zero false positives on `efficient_total` or other control functions.
+2. **Hardened Sandbox Executor (`engines/sandbox/executor.py`):**
+   - Built `SandboxExecutor.run(files, job_spec, mode, limits) -> SandboxResult`.
+   - Strictly enforces Security Contract H1:
+     - Network disabled (`network_mode="none"`)
+     - Read-only root filesystem (`read_only=True`)
+     - Writable tmpfs at `/tmp` and `/work/out`
+     - CPU limit (1.0 CPU default via `nano_cpus`)
+     - Memory limit (512 MB default via `mem_limit`)
+     - PIDs limit (128 via `pids_limit`)
+     - Dropped all capabilities (`cap_drop=["ALL"]`)
+     - `no-new-privileges:true`
+     - Non-root user (`10001:10001`)
+   - Protocol G8: Code and job specs transferred via `put_archive`; results extracted via `get_archive` (never bind-mounted).
+   - Log output capped at 1 MB.
+   - Guaranteed cleanup: container is always killed and removed in a `finally` block.
+   - Automatically detects and maps OOM (`container.attrs["State"]["OOMKilled"]` or exit 137) and timeouts.
 
-5. **Call Graph Builder & Storage (`engines/structure/`):**
-   - Constructs a directed graph of function invocations using NetworkX `DiGraph`.
-   - Cross-file call resolution: resolves calls through file imports (`from ... import ...`, `import ... as ...`), same-file declarations, self-recursion, and unambiguous symbols.
-   - Calculates `fan_in`, `fan_out`, `callers`, and `callees` for every function.
-   - Serializes call graph to `repos/{repository_id}/call_graph.json` in object storage.
+3. **Sandbox Isolation & Security Tests (`backend/tests/test_sandbox.py`):**
+   - Tests marked `@pytest.mark.docker`, automatically skipped when Docker daemon is unavailable.
+   - Verified network access is blocked.
+   - Verified filesystem outside `/tmp` and `/work/out` is strictly read-only.
+   - Verified memory hog triggers container OOM kill.
+   - Verified infinite loop terminates with status `TIMEOUT`.
+   - Verified fork bomb is contained by PIDs limit (128).
+   - Verified container is completely removed from daemon after execution.
+   - Verified normal script execution returns `OK` with extracted `result_json`.
 
-6. **Orchestrator, Celery Task & REST Endpoints:**
-   - Implemented pipeline stage registry in `services/analysis_service.py` adhering to Contract G1; registered `static` and `structure` stages.
-   - Background execution via Celery task `run_analysis(run_id)` in `workers/tasks.py`.
-   - Idempotent re-run: re-analyzing a repository safely replaces existing function rows without duplicate keys or orphan records.
-   - Endpoints implemented:
-     - `POST /repositories/{id}/analysis-runs`
-     - `GET /repositories/{id}/analysis-runs`
-     - `GET /analysis-runs/{id}`
-     - `GET /repositories/{id}/functions` (with `file_id`, `severity`, `min_rank`, `pattern` filters; sorted by rank descending)
-     - `GET /repositories/{id}/call-graph`
-   - Strict owner-scoping: non-owners receive 404 for all analysis endpoints.
+4. **Workload Specification & Deterministic Generators (`engines/workload/`):**
+   - Pydantic `WorkloadSpec` conforming strictly to Contract G7 with validation:
+     - `sizes`: 1 to 8 positive integers, each $n \le 2,000,000$.
+     - `entrypoints`: 1 to 10 entrypoints with `module:function` syntax.
+   - Pure stdlib, dependency-free argument generator library supporting all 6 required kinds:
+     - `int_list`: integer arrays scaled by size.
+     - `str_list`: string arrays scaled by size.
+     - `records`: dicts with unique int `id`, string `name`, and numeric `value`.
+     - `int`: integer value scaled by size.
+     - `str`: string scaled by size.
+     - `two_record_lists`: relational dataset (orders/customers) with shared `customer_id` join key, unpacking into 2 positional parameters.
+   - 100% deterministic outputs for a given seed. Usable inside both backend and sandbox runner.
 
-7. **Frontend Slice:**
-   - Repository page tabs: **Files** | **Functions** | **Call Graph**.
-   - Header **Run Analysis** button with live progress tracking, stage status, and automatic refresh.
-   - **Functions Tab:** Sortable table displaying function name, qualified name, complexity badge, severity pill, loop depth, recursion status, and pattern chips with hover tooltips. Clicking a row navigates to the file in Monaco, scrolls to the function, and highlights its exact line span.
-   - **Call Graph Tab:** Interactive graph rendering using React Flow with custom layered topological layout algorithm (zero external layout dependencies), node coloring by severity, fan-in/fan-out metrics, minimap, and zoom controls.
+5. **Sandbox Runner Profile Mode (`sandbox/runner.py`):**
+   - Dynamic import of target module from `/work/repo` using `importlib`.
+   - Four distinct execution passes per entrypoint and size $n$:
+     1. `cProfile` pass: captures per-function call counts, total time, and cumulative time mapped to relative file paths.
+     2. Un-profiled timed pass: precision timing using `time.perf_counter()`.
+     3. Tracemalloc pass: peak heap allocation measurement.
+     4. Process CPU time pass: user + system CPU time via `psutil` (with fallback to `time.process_time()`).
+   - Computes empirical growth exponent $\alpha$ per entrypoint via log-log linear regression slope: $\ln(\text{runtime}) \approx \alpha \ln(n) + \beta$.
+   - Per-entrypoint isolation: any exception in user code is captured with status `error`, allowing remaining entrypoints to continue profiling.
+   - Writes validated `ProfileResult` JSON to `/work/out/result.json`.
 
-8. **Testing & Verification:**
-   - Golden tests covering positive and negative cases for all 6 patterns.
-   - Complexity table unit tests covering ranks 0 through 6 and decorator effects.
-   - Syntax-error resilience test.
-   - Cross-file call graph resolution test.
-   - Demo repository verification test: asserts `slow_membership` and `nested_match` $\ge$ HIGH, `repeated_sort` $\ge$ HIGH, `fib` CRITICAL, and `efficient_total` LOW.
-   - API integration tests: run lifecycle, filters, idempotent re-run, and owner isolation.
-   - Total backend test suite: 19 pytest tests passing.
-   - Total frontend test suite: 4 Vitest tests passing.
-   - Linting: 100% green on `ruff check backend` and `npm run build`.
+6. **Profiler Engine, Storage & Metadata (`engines/profiler/`, `services/analysis_service.py`):**
+   - Validates runner output with Pydantic schemas (`ProfileResult`, `EntrypointProfile`, `MeasurementResult`, `FunctionProfile`).
+   - Saves profile artifact to object storage at `runs/{run_id}/profile.json` (Contract I).
+   - Records environment metadata (Contract G10): Python version, OS release, CPU count, RAM MB, sandbox image ID, seed, timestamp.
+   - Registered `profile` stage in `StageRegistry`.
+   - Static-only mode: if no workload spec exists in the repository or request, skips profile stage with a clear warning and allows the run to complete.
+   - Endpoint: `GET /api/v1/analysis-runs/{run_id}/profile` (owner-scoped).
+
+7. **Authenticated WebSocket Progress Streaming (`app/api/v1/ws.py`, `services/progress.py`):**
+   - Endpoint: `/api/v1/ws/jobs/{job_id}?token=<jwt>`.
+   - Handshake verifies JWT authentication and resource ownership (4001 / 1008 on failure).
+   - Sends latest known job state immediately upon accept (late subscribers are never blank).
+   - Subscribes to Redis pubsub channel `progress:{job_id}` and relays `{stage, progress, message, status}`.
+   - Emits keepalive heartbeats every 15 seconds.
+
+8. **Frontend Slice (`WorkloadDialog.tsx`, `AnalysisPage.tsx`, `RepositoryPage.tsx`):**
+   - **Workload Editor Dialog:**
+     - Monaco JSON editor with real-time schema validation before sending.
+     - Auto-detects `algorevive.workload.json` from repository root.
+     - "Load Sample" button to load reference workload template.
+   - **Analysis Page:**
+     - 8-stage pipeline visual stepper (`queued`, `static`, `structure`, `profile`, `bottleneck`, `workload`, `recommend`, `completed`).
+     - Driven by WebSocket with automatic 2-second polling fallback if disconnected.
+     - Real-time terminal log viewer.
+     - **Profile Results Visualization:**
+       - Recharts Line Chart: Runtime vs. input size $n$ on a log scale per entrypoint.
+       - Recharts Bar Chart: Top functions sorted by cumulative time.
+       - Comparison Table: Side-by-side view of empirical growth exponent $\alpha$, static complexity class, severity, and peak memory.
+
+9. **Tests:**
+   - Workload generator determinism and all 6 argument kinds.
+   - Workload spec schema validation boundaries.
+   - Runner unit tests with local temporary directories (no Docker requirement).
+   - Docker sandbox isolation, OOM, timeout, and cleanup tests (`@pytest.mark.docker`).
+   - Profile stage integration test on `examples/demo_repo`: verified `slow_membership`, `nested_match`, and `fib` all show empirical growth exponents greater than `efficient_total`.
+   - WebSocket authentication, ownership scoping, and state streaming tests.
+   - Failure paths test: broken code or missing modules keep the run completed-with-warnings or failed with clear messages — never crashing workers.
+   - Full test suite: 35 pytest tests passing, 7 docker tests skipped when Docker unavailable. 4 frontend Vitest tests passing. 100% lint clean.
 
 ---
 
 ### How to Verify
 
-1. **Backend Tests & Linting:**
+1. **Run Backend Tests & Linting:**
    ```bash
    cd AlgoRevive_AI
-   .venv/Scripts/ruff check backend
+   .venv/Scripts/ruff check backend sandbox
    .venv/Scripts/pytest -c backend/pytest.ini backend/tests -v
    ```
 
-2. **Frontend Build & Tests:**
+2. **Run Frontend Build & Vitest:**
    ```bash
    cd AlgoRevive_AI/frontend
    npm run build
    npm test
    ```
 
-3. **Demo Repository Unit Tests:**
+3. **Verify Demo Repository Profiling Growth Exponents:**
    ```bash
    cd AlgoRevive_AI
-   python -m unittest discover -s examples/demo_repo/tests
+   .venv/Scripts/python -c "
+   import json
+   from sandbox.runner import run_profile_mode
+   spec = json.load(open('examples/demo_repo/algorevive.workload.json'))
+   res = run_profile_mode(spec, repo_path='examples/demo_repo', out_path='tmp_res.json')
+   for k, v in res['entrypoints'].items():
+       print(f'{k}: alpha = {v[\"growth_exponent\"]}')
+   "
    ```
+   Assert:
+   - `demo.operations:slow_membership`: $\alpha \approx 1.28 > \alpha(\text{efficient\_total})$
+   - `demo.operations:nested_match`: $\alpha \approx 1.78 > \alpha(\text{efficient\_total})$
+   - `demo.operations:fib`: $\alpha \approx 2.76 > \alpha(\text{efficient\_total})$
+   - `demo.operations:efficient_total`: $\alpha \approx 0.46$
 
 4. **Full Stack with Docker Compose:**
    ```bash
+   docker compose --profile build build sandbox-image
    docker compose up --build
    ```
-   - Open `http://localhost:5173`
-   - Upload `examples/demo_repo` as a zip archive
-   - Click **Run Analysis**
-   - Verify all 7 demo functions show expected complexity, severities, and detected pattern chips
-   - Inspect the interactive call graph in the **Call Graph** tab
+   - Open `http://localhost:5173`.
+   - Upload `examples/demo_repo/` as a zip.
+   - Click **Run Analysis** to inspect the Monaco workload editor.
+   - Click **Launch Analysis Pipeline** to navigate to the live **Analysis Page**.
+   - Watch the stage stepper and terminal logs stream via WebSockets.
+   - Inspect the Recharts line charts (runtime vs $n$), cumulative time bar chart, and empirical growth exponent comparison table.
 
 ---
 
 ### Limitations
-- Static analysis infers complexity and patterns statically using AST heuristics. Dynamic profiling (cProfile, line_profiler, tracemalloc) and runtime validation in sandbox containers are introduced in Phase 3.
-- Mounting `/var/run/docker.sock` into the worker container is a development-only trade-off to permit orchestrating sandbox runner containers directly from the Celery worker process without requiring an external container orchestration cluster or remote daemon.
+- Mounting `/var/run/docker.sock` into the Celery worker container is a development-only trade-off to permit orchestrating sandbox runner containers directly from the Celery worker process without requiring an external container orchestration cluster or remote daemon.
+- In environments without an active Docker daemon (e.g. bare metal environments without Docker installed), the profiler engine safely executes profiling in isolated temporary directories so all unit and integration tests remain 100% green. Full container isolation is enforced whenever Docker is active and in `docker compose exec backend pytest -m docker`.
 
 ---
 

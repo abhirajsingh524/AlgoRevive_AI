@@ -33,7 +33,7 @@ Verify the demo repository's unit tests using Python's built-in `unittest` runne
 python -m unittest discover -s examples/demo_repo/tests
 ```
 
-### 2. Run Static Analysis & Call Graph in the Platform
+### 2. Run Static Analysis & Runtime Profiling in the Platform
 1. Start the stack with `docker compose up --build` and open `http://localhost:5173`.
 2. Register an account and sign in.
 3. Create a new project (e.g., *Performance Benchmark Demo*).
@@ -44,10 +44,29 @@ python -m unittest discover -s examples/demo_repo/tests
    ```
 5. In the UI, drag and drop `demo_repo.zip` into your project.
 6. Open the newly created repository and click **Run Analysis**.
-7. Explore the three tabs:
+7. In the **Run Analysis & Workload Spec** dialog:
+   - Notice the auto-detected `algorevive.workload.json` from the repository root.
+   - Edit, modify, or reload sample workload specifications using the embedded Monaco JSON editor with real-time schema validation.
+   - Click **Launch Analysis Pipeline**.
+8. Follow live analysis progress on the **Analysis Page**:
+   - Real-time stage stepper driven by WebSocket (`/api/v1/ws/jobs/{id}`) with automatic 2-second polling fallback.
+   - Terminal-style live event log.
+   - Upon completion, view the **Runtime Profile Results**:
+     - **Recharts Line Chart:** Runtime vs. input size $n$ on a log-log scale per entrypoint demonstrating empirical growth curves.
+     - **Recharts Bar Chart:** Top functions sorted by cumulative execution time.
+     - **Comparison Table:** Side-by-side comparison of empirical growth exponent $\alpha$, static complexity class ($O(n^2)$, $O(2^n)$), severity, and peak memory.
+9. Return to the repository to explore the static analysis tabs:
    - **Files:** Browse source code in the Monaco code editor.
-   - **Functions:** Inspect estimated time complexities (`O(n^2)`, `O(2^n)`), severity badges (`LOW`, `HIGH`, `CRITICAL`), loop depths, recursion flags, and detected pattern chips (`LINEAR_MEMBERSHIP_IN_LOOP`, `NAIVE_RECURSION`, etc.). Clicking any function row opens the file in Monaco, scrolls to the function definition, and highlights its exact line span.
+   - **Functions:** Inspect estimated time complexities (`O(n^2)`, `O(2^n)`), severity badges (`LOW`, `HIGH`, `CRITICAL`), loop depths, recursion flags, and detected pattern chips (`LINEAR_MEMBERSHIP_IN_LOOP`, `NAIVE_RECURSION`, etc.).
    - **Call Graph:** Explore an interactive React Flow visualization of function calls with hierarchical layered layout, node severity coloring, fan-in/fan-out metrics, minimap, and zoom controls.
+
+---
+
+### Sandbox Runner Image Build
+To build the sandbox runner image used for isolated code execution:
+```bash
+docker compose --profile build build sandbox-image
+```
 
 ---
 
