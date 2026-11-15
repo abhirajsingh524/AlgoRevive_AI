@@ -124,7 +124,8 @@
 ---
 
 ### Limitations
-- Static analysis infers complexity and patterns statically using AST heuristics. Dynamic profiling (cProfile, line_profiler, tracemalloc) and runtime validation in sandbox containers will be introduced in Phase 3.
+- Static analysis infers complexity and patterns statically using AST heuristics. Dynamic profiling (cProfile, line_profiler, tracemalloc) and runtime validation in sandbox containers are introduced in Phase 3.
+- Mounting `/var/run/docker.sock` into the worker container is a development-only trade-off to permit orchestrating sandbox runner containers directly from the Celery worker process without requiring an external container orchestration cluster or remote daemon.
 
 ---
 

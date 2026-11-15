@@ -56,6 +56,13 @@ services:
     networks:
       - algorevive-net
 
+  sandbox-image:
+    profiles: ["build"]
+    build:
+      context: .
+      dockerfile: sandbox/Dockerfile.runner
+    image: algorevive-sandbox:latest
+
   backend:
     build:
       context: ./backend
@@ -140,6 +147,8 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
     healthcheck:
       test: ["CMD-SHELL", "celery -A app.workers.celery_app inspect ping || exit 1"]
       interval: 10s
