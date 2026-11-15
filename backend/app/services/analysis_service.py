@@ -21,6 +21,7 @@ from app.core.errors import AppException
 from app.core.logging import get_logger
 from app.engines.bottleneck import BottleneckDetector
 from app.engines.complexity import ComplexityEstimator
+from app.engines.explain import build_why_flagged
 from app.engines.profiler import ProfilerEngine, collect_environment_metadata
 from app.engines.static_analyzer import PatternDetector, StaticAnalyzer
 from app.engines.structure import CallGraphBuilder, save_call_graph
@@ -416,6 +417,8 @@ def stage_workload(ctx: AnalysisContext) -> None:
         fv = build_feature_vector(b, function=fn)
         evidence["features"] = fv.model_dump()
         evidence["features_array"] = fv.to_array()
+        why_tree = build_why_flagged(b, function=fn)
+        evidence["why_flagged"] = why_tree
         b.evidence = evidence
         flag_modified(b, "evidence")
 
