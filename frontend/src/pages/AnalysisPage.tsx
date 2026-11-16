@@ -128,40 +128,41 @@ export const AnalysisPage: React.FC = () => {
     if (!runId) return;
     if (run?.status === 'completed' || run?.status === 'failed') return;
 
-    let pollingInterval: NodeJS.Timeout | null = null;
     let isSubscribed = true;
 
-    const startPollingFallback = () => {
-      if (pollingInterval) return;
-      console.log('Starting polling fallback for analysis progress...');
-      pollingInterval = setInterval(async () => {
-        try {
-          const updated = await api.analysis.getRun(runId);
-          if (!isSubscribed) return;
-          setRun(updated);
-
-          setLogs((prev) => [
-            ...prev,
-            {
-              timestamp: new Date().toLocaleTimeString(),
-              stage: updated.stage,
-              progress: updated.progress,
-              message: updated.error || `Polling: Stage ${updated.stage} (${updated.progress}%)`,
-              status: updated.status,
-            },
-          ]);
-
-          if (updated.status === 'completed') {
-            if (pollingInterval) clearInterval(pollingInterval);
-            await loadCompletedData(updated.repository_id || repositoryId, updated.id);
-          } else if (updated.status === 'failed') {
-            if (pollingInterval) clearInterval(pollingInterval);
+    // Active watchdog poll guarantees progress sync even if WebSocket frames are delayed
+    const watchdogInterval = setInterval(async () => {
+      if (!isSubscribed) return;
+      try {
+        const updated = await api.analysis.getRun(runId);
+        if (!isSubscribed) return;
+        setRun((prev) => {
+          if (!prev || updated.progress > prev.progress || updated.stage !== prev.stage || updated.status !== prev.status) {
+            setLogs((prevLogs) => [
+              ...prevLogs,
+              {
+                timestamp: new Date().toLocaleTimeString(),
+                stage: updated.stage,
+                progress: updated.progress,
+                message: updated.error || `Stage: ${updated.stage} (${updated.progress}%)`,
+                status: updated.status,
+              },
+            ]);
+            return updated;
           }
-        } catch (pollErr) {
-          console.warn('Polling error:', pollErr);
+          return prev;
+        });
+
+        if (updated.status === 'completed') {
+          clearInterval(watchdogInterval);
+          await loadCompletedData(updated.repository_id || repositoryId, updated.id);
+        } else if (updated.status === 'failed') {
+          clearInterval(watchdogInterval);
         }
-      }, 2000);
-    };
+      } catch (pollErr) {
+        // silent
+      }
+    }, 1500);
 
     const token = localStorage.getItem('algorevive_token');
     const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -208,6 +209,7 @@ export const AnalysisPage: React.FC = () => {
           );
 
           if (data.status === 'completed') {
+            clearInterval(watchdogInterval);
             ws.close();
             await loadCompletedData(repositoryId, runId);
           }
@@ -218,19 +220,14 @@ export const AnalysisPage: React.FC = () => {
 
       ws.onerror = () => {
         setWsConnected(false);
-        startPollingFallback();
       };
 
       ws.onclose = () => {
         setWsConnected(false);
-        if (run?.status !== 'completed' && run?.status !== 'failed') {
-          startPollingFallback();
-        }
       };
     } catch (wsErr) {
-      console.warn('WebSocket init failed, switching to polling:', wsErr);
+      console.warn('WebSocket init failed, relying on polling:', wsErr);
       setWsConnected(false);
-      startPollingFallback();
     }
 
     return () => {
@@ -238,9 +235,7 @@ export const AnalysisPage: React.FC = () => {
       if (socketRef.current) {
         socketRef.current.close();
       }
-      if (pollingInterval) {
-        clearInterval(pollingInterval);
-      }
+      clearInterval(watchdogInterval);
     };
   }, [runId, run?.status]);
 

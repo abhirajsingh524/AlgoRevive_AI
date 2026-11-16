@@ -80,6 +80,14 @@ class BottleneckDetector:
         if has_profile and profile_data and "entrypoints" in profile_data:
             entrypoints = profile_data.get("entrypoints", {})
 
+            # If no entrypoints succeeded (e.g. import errors or missing modules), fall back to static-only scoring
+            has_successful_entrypoints = any(
+                isinstance(ep, dict) and ep.get("status") == "success" for ep in entrypoints.values()
+            )
+            if not has_successful_entrypoints:
+                logger.info(f"No successful profile entrypoints for run {analysis_run_id}; using static-only scoring")
+                has_profile = False
+
             for ep_key, ep_val in entrypoints.items():
                 if ep_val.get("status") != "success":
                     continue

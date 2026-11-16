@@ -264,6 +264,42 @@ def stage_profile(ctx: AnalysisContext) -> None:
                 except Exception as e:
                     logger.warning(f"Failed to read workload spec from {f.path}: {e}")
 
+    # If no workload spec found, auto-synthesize from detected functions so profiling can run
+    if not workload_data:
+        funcs = (
+            ctx.db.query(Function)
+            .filter(Function.repository_id == ctx.repository.id)
+            .all()
+        )
+        if funcs:
+            from pathlib import Path
+            file_map = {f.id: f.path for f in ctx.db.query(File).filter(File.repository_id == ctx.repository.id).all()}
+            entrypoint_specs = []
+            for fn in funcs[:5]:
+                fpath = file_map.get(fn.file_id, "")
+                mod_name = Path(fpath).stem if fpath else "main"
+                if fn.name != "<module>" and not fn.name.startswith("__"):
+                    arg_specs = []
+                    for param in (fn.params or []):
+                        pname = param.get("name", "")
+                        if pname in ("self", "cls"):
+                            continue
+                        arg_specs.append({"kind": "int_list", "size_factor": 1.0})
+                    entrypoint_specs.append({
+                        "function": f"{mod_name}:{fn.name}",
+                        "args": arg_specs,
+                    })
+            if entrypoint_specs:
+                workload_data = {
+                    "sizes": [100, 500, 1000],
+                    "entrypoints": entrypoint_specs,
+                    "operation_mix": {"lookup": 0.9, "insert": 0.05, "delete": 0.05},
+                    "memory_constraint": "medium",
+                    "seed": 42,
+                }
+                ctx.run.workload_spec = workload_data
+                ctx.db.commit()
+
     # 2. If no workload spec found, skip with clear warning (static-only mode)
     if not workload_data:
         warning_msg = "No workload spec found (static-only mode); skipping profiling stage"

@@ -360,6 +360,56 @@ class StaticAnalyzer:
         # 2. Walk AST tracking class and function hierarchy
         self._analyze_scope(tree, result, scope_prefix=[], current_class=None)
 
+        # 3. If file has no functions defined, wrap executable top-level statements as <module>
+        if not result.functions and hasattr(tree, "body") and tree.body:
+            has_executable = False
+            for stmt in tree.body:
+                if isinstance(stmt, (ast.Import, ast.ImportFrom, ast.Pass)):
+                    continue
+                if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant) and isinstance(stmt.value.value, str):
+                    continue
+                has_executable = True
+                break
+
+            if has_executable:
+                from pathlib import Path
+                module_name = Path(file_path).stem or "main"
+                fn_name = "<module>"
+                fn_qualname = f"{module_name}.<module>"
+                lineno = getattr(tree.body[0], "lineno", 1)
+                end_lineno = getattr(tree.body[-1], "end_lineno", lineno) or lineno
+                loc = max(1, end_lineno - lineno + 1)
+                loop_depth = _compute_loop_depth(tree)
+                comprehension_loops = _compute_comprehension_loops(tree)
+                cyclomatic_complexity = _compute_cyclomatic_complexity(tree)
+                calls = _extract_calls(tree)
+                metrics = {
+                    "loc": loc,
+                    "cyclomatic_complexity": cyclomatic_complexity,
+                    "loop_depth": loop_depth,
+                    "comprehension_loops": comprehension_loops,
+                    "has_recursion": False,
+                    "recursive_calls_count": 0,
+                    "calls": calls,
+                    "decorators": [],
+                    "is_method": False,
+                    "is_nested": False,
+                    "class_name": None,
+                }
+                fn_info = FunctionInfo(
+                    name=fn_name,
+                    qualified_name=fn_qualname,
+                    lineno=lineno,
+                    end_lineno=end_lineno,
+                    params=[],
+                    loop_depth=loop_depth,
+                    has_recursion=False,
+                    metrics=metrics,
+                    docstring=ast.get_docstring(tree),
+                    ast_node=tree,
+                )
+                result.functions.append(fn_info)
+
         return result
 
     def _analyze_scope(

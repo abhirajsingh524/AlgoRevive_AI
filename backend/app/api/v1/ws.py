@@ -119,49 +119,98 @@ async def websocket_job_progress(
             pass
         return
 
+    local_queue: asyncio.Queue = asyncio.Queue()
+    from app.services.progress import register_local_listener, unregister_local_listener
+
+    register_local_listener(job_id, local_queue)
+
     redis_client: Optional[aioredis.Redis] = None
     pubsub: Optional[aioredis.client.PubSub] = None
 
     try:
-        redis_client = aioredis.from_url(
-            settings.REDIS_URL,
-            socket_timeout=5.0,
-            decode_responses=True,
-        )
-        pubsub = redis_client.pubsub()
-        channel = f"progress:{job_id}"
-        await pubsub.subscribe(channel)
+        try:
+            redis_client = aioredis.from_url(
+                settings.REDIS_URL,
+                socket_timeout=1.0,
+                decode_responses=True,
+            )
+            pubsub = redis_client.pubsub()
+            channel = f"progress:{job_id}"
+            await pubsub.subscribe(channel)
+        except Exception as redis_err:
+            logger.debug(f"Redis pubsub unavailable for job {job_id} ({redis_err}); using local memory bus")
+            pubsub = None
+            if redis_client is not None:
+                await redis_client.close()
+                redis_client = None
 
         last_heartbeat = time.time()
+        last_sent_progress = initial_state.get("progress", 0)
+        last_sent_stage = initial_state.get("stage", "queued")
+        last_db_check = time.time()
 
         while True:
-            # Poll for Redis pubsub message with short timeout
+            payload = None
+
+            # 1. Check local in-memory queue first
             try:
-                msg = await asyncio.wait_for(
-                    pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0),
-                    timeout=1.5,
-                )
-                if msg and msg.get("type") == "message":
-                    raw_data = msg.get("data", "")
-                    if isinstance(raw_data, str) and raw_data.strip():
-                        payload = json.loads(raw_data)
-                        client_msg = {
-                            "stage": payload.get("stage", "running"),
-                            "progress": payload.get("progress", 0),
-                            "message": payload.get("message", ""),
-                            "status": payload.get("status", "running"),
-                        }
-                        await websocket.send_json(client_msg)
-
-                        # If reached terminal state, socket can close or stay open
-                        if client_msg.get("status") in ("completed", "failed"):
-                            pass
-
-            except (asyncio.TimeoutError, TimeoutError):
+                payload = local_queue.get_nowait()
+            except asyncio.QueueEmpty:
                 pass
 
-            # Heartbeat every 15 seconds
+            # 2. Check Redis pubsub if active
+            if not payload and pubsub is not None:
+                try:
+                    msg = await asyncio.wait_for(
+                        pubsub.get_message(ignore_subscribe_messages=True, timeout=0.2),
+                        timeout=0.3,
+                    )
+                    if msg and msg.get("type") == "message":
+                        raw_data = msg.get("data", "")
+                        if isinstance(raw_data, str) and raw_data.strip():
+                            payload = json.loads(raw_data)
+                except (asyncio.TimeoutError, TimeoutError):
+                    pass
+                except Exception:
+                    pubsub = None
+
+            # 3. If no message from queue or redis, wait up to 0.5s on local queue
+            if not payload:
+                try:
+                    payload = await asyncio.wait_for(local_queue.get(), timeout=0.5)
+                except (asyncio.TimeoutError, TimeoutError):
+                    pass
+
             now = time.time()
+
+            # 4. Periodically (every 1s) check DB as a guaranteed safety watchdog
+            if not payload and (now - last_db_check >= 1.0):
+                last_db_check = now
+                current_db_state = _get_latest_job_state(job_id, db)
+                if (
+                    current_db_state.get("progress") != last_sent_progress
+                    or current_db_state.get("stage") != last_sent_stage
+                    or current_db_state.get("status") in ("completed", "failed")
+                ):
+                    payload = current_db_state
+
+            # If we have a payload to send
+            if payload:
+                client_msg = {
+                    "stage": payload.get("stage", "running"),
+                    "progress": payload.get("progress", 0),
+                    "message": payload.get("message", ""),
+                    "status": payload.get("status", "running"),
+                }
+                last_sent_progress = client_msg["progress"]
+                last_sent_stage = client_msg["stage"]
+                await websocket.send_json(client_msg)
+
+                if client_msg.get("status") in ("completed", "failed"):
+                    await asyncio.sleep(0.5)
+                    break
+
+            # Heartbeat every 15 seconds
             if now - last_heartbeat >= 15.0:
                 await websocket.send_json({"type": "heartbeat", "timestamp": now})
                 last_heartbeat = now
@@ -171,6 +220,7 @@ async def websocket_job_progress(
     except Exception as e:
         logger.warning(f"Error in WebSocket progress relay for job {job_id}: {e}")
     finally:
+        unregister_local_listener(job_id, local_queue)
         if pubsub is not None:
             try:
                 await pubsub.unsubscribe()

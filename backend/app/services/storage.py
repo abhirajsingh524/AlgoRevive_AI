@@ -47,7 +47,12 @@ class LocalStorage(StorageService):
             import tempfile
             self.base_dir = Path(tempfile.gettempdir()) / "algorevive-storage"
         else:
-            self.base_dir = Path(raw_dir)
+            p = Path(raw_dir)
+            if not p.is_absolute():
+                repo_root = Path(__file__).resolve().parents[3]
+                self.base_dir = (repo_root / p).resolve()
+            else:
+                self.base_dir = p
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
     def _get_path(self, key: str) -> Path:
