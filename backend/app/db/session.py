@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Generator
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
@@ -6,13 +7,23 @@ from app.core.logging import get_logger
 
 logger = get_logger("db")
 
-connect_args = {"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {}
-if "postgresql" in settings.DATABASE_URL:
+REPO_ROOT = Path(__file__).resolve().parents[3]
+CANONICAL_DB_FILE = (REPO_ROOT / "algorevive.db").resolve()
+CANONICAL_SQLITE_URL = f"sqlite:///{CANONICAL_DB_FILE.as_posix()}"
+
+db_url = settings.DATABASE_URL
+if db_url.startswith("sqlite:///") and not db_url.startswith("sqlite:///:memory:"):
+    path_part = db_url.replace("sqlite:///", "")
+    if not Path(path_part).is_absolute() and not (len(path_part) > 1 and path_part[1] == ":"):
+        db_url = CANONICAL_SQLITE_URL
+
+connect_args = {"check_same_thread": False} if "sqlite" in db_url else {}
+if "postgresql" in db_url:
     connect_args["connect_timeout"] = 2
 
 try:
     engine = create_engine(
-        settings.DATABASE_URL,
+        db_url,
         connect_args=connect_args,
         pool_pre_ping=True,
         echo=False,
@@ -21,10 +32,10 @@ try:
         pass
 except Exception as e:
     logger.warning(
-        f"Could not connect to primary database ({e}); falling back to local SQLite database."
+        f"Could not connect to primary database ({e}); falling back to local SQLite database at {CANONICAL_SQLITE_URL}."
     )
     engine = create_engine(
-        "sqlite:///algorevive.db",
+        CANONICAL_SQLITE_URL,
         connect_args={"check_same_thread": False},
     )
     from app.db.base import Base

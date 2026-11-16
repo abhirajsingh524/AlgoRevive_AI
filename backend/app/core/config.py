@@ -1,12 +1,20 @@
 import json
+from pathlib import Path
 from typing import List, Optional
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_ENV_CANDIDATES = [
+    str(_REPO_ROOT / ".env"),
+    str(_REPO_ROOT / "backend" / ".env"),
+    ".env",
+]
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_ENV_CANDIDATES,
         env_file_encoding="utf-8",
         extra="ignore",
     )

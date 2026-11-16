@@ -66,6 +66,36 @@ app.add_exception_handler(Exception, generic_exception_handler)
 app.include_router(api_router, prefix="/api/v1")
 
 
+@app.on_event("startup")
+def startup_event():
+    try:
+        from app.db.base import Base
+        from app.db.session import engine, SessionLocal
+        from app.models.user import User
+        from app.core.security import hash_password
+
+        Base.metadata.create_all(bind=engine)
+
+        db = SessionLocal()
+        try:
+            demo_user = db.query(User).filter(User.email == "demo@example.com").first()
+            if not demo_user:
+                demo_user = User(
+                    id="demo-user-id-0001",
+                    email="demo@example.com",
+                    hashed_password=hash_password("Password123!"),
+                    full_name="Demo Developer",
+                    role="developer",
+                    is_active=True,
+                )
+                db.add(demo_user)
+                db.commit()
+        finally:
+            db.close()
+    except Exception as e:
+        logger.warning(f"Startup check/seeding warning: {e}")
+
+
 # Root-level health endpoints (mirrors /api/v1/health for standard container probes)
 @app.get("/health", tags=["health"])
 def root_health() -> dict[str, str]:

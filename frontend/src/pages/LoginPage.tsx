@@ -25,8 +25,14 @@ export const LoginPage: React.FC = () => {
       await login(email, password);
       navigate('/dashboard');
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } };
-      setError(axiosErr.response?.data?.detail || 'Invalid email or password');
+      const axiosErr = err as { response?: { data?: { detail?: string } }; request?: unknown; message?: string };
+      if (!axiosErr.response) {
+        setError(
+          'Cannot connect to backend server at http://localhost:8000. Please ensure uvicorn is running on port 8000.'
+        );
+      } else {
+        setError(axiosErr.response?.data?.detail || 'Invalid email or password');
+      }
     } finally {
       setIsSubmitting(false);
     }
