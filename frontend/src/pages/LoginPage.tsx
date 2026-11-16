@@ -100,6 +100,17 @@ export const LoginPage: React.FC = () => {
               </>
             )}
           </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setEmail('demo@example.com');
+              setPassword('Password123!');
+            }}
+            className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-800/80 px-4 py-2 text-xs font-medium text-slate-300 transition-colors hover:bg-slate-700 hover:text-white"
+          >
+            <span>Auto-fill Demo Account (demo@example.com)</span>
+          </button>
         </form>
 
         <div className="text-center text-sm text-slate-400">

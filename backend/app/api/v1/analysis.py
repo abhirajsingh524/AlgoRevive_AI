@@ -14,6 +14,7 @@ from app.models.project import Project
 from app.models.repository import Repository
 from app.models.user import User
 from app.schemas.analysis import AnalysisRunCreate, AnalysisRunResponse
+from app.services.analysis_service import execute_analysis
 from app.services.storage import get_storage_service
 from app.workers.tasks import run_analysis
 
@@ -22,8 +23,9 @@ logger = get_logger("analysis_api")
 router = APIRouter(tags=["analysis"])
 
 
-def _try_enqueue_task(run_id: str) -> None:
-    """Safely enqueue Celery task without blocking API request if broker is down."""
+def _try_enqueue_task(run_id: str, db: Session | None = None) -> None:
+    """Safely enqueue Celery task; fallback to direct background thread if broker is down."""
+    dispatched = False
     try:
         parsed = urlparse(settings.REDIS_URL)
         host = parsed.hostname or "localhost"
@@ -32,8 +34,23 @@ def _try_enqueue_task(run_id: str) -> None:
             s.settimeout(0.2)
             s.connect((host, port))
         run_analysis.apply_async(args=[run_id])
+        dispatched = True
     except Exception as e:
-        logger.warning(f"Could not enqueue Celery task, run remains queued: {e}")
+        logger.warning(f"Could not enqueue Celery task ({e}), falling back to direct execution")
+
+    if not dispatched:
+        import threading
+        storage = get_storage_service()
+
+        def _run_inline():
+            try:
+                from app.db.session import SessionLocal
+                with SessionLocal() as session:
+                    execute_analysis(db=session, storage=storage, run_id=run_id)
+            except Exception as exc:
+                logger.error(f"Fallback analysis execution failed: {exc}")
+
+        threading.Thread(target=_run_inline, daemon=True).start()
 
 
 def get_owned_repository(repo_id: str, user_id: str, db: Session) -> Repository:
